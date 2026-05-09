@@ -1,17 +1,12 @@
 """
-Marketplace Infografik Bot v8
+Marketplace Infografik Bot v10
 ==============================
-Tezlashtirish:
-1. Tahlil + Prompt bitta call da (~10 sek tejash)
-2. quality: "low" (~2-3x tezroq)
-3. 2 ta variant parallel generatsiya (asyncio, ~30-40 sek tejash)
-4. Progress bar + bosqichlar animatsiya
-
-Narx: ~$0.014 per so'rov (2 variant, gpt-image-2 low)
+4 ta tarif — avvalgi ishlagan promptlar qaytarilgan, tavsif rasmlari yaxshilangan
 """
 
 import os
 import io
+import re
 import base64
 import logging
 import asyncio
@@ -22,25 +17,17 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
-    BufferedInputFile,
-    InputMediaPhoto,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    CallbackQuery,
-    ReplyKeyboardMarkup,
-    KeyboardButton,
-    BotCommand,
+    BufferedInputFile, InputMediaPhoto,
+    InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery,
+    ReplyKeyboardMarkup, KeyboardButton, BotCommand,
 )
 from aiogram.enums import ParseMode
 from openai import OpenAI
 from PIL import Image
 
-# ── Sozlamalar ───────────────────────────────────────────────────
 load_dotenv()
-
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN va OPENAI_API_KEY .env faylda bo'lishi kerak!")
 
@@ -51,10 +38,7 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 bot = Bot(token=TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
 router = Router()
-
-# Thread pool for parallel API calls
 executor = ThreadPoolExecutor(max_workers=4)
-
 user_tasks = {}
 user_settings = {}
 
@@ -67,146 +51,96 @@ TEXTS = {
     "uz": {
         "welcome": (
             "🎨 <b>Marketplace Infografik Bot</b>\n\n"
-            "Bu bot mahsulot rasmingizni professional marketplace\n"
-            "infografik rasmga aylantirib beradi.\n\n"
-            "📸 <b>Qanday ishlaydi:</b>\n"
-            "1. Mahsulot rasmini yuboring\n"
-            "2. AI mahsulotni tahlil qiladi\n"
-            "3. 2 ta variant tayyorlab beradi\n\n"
-            "📐 Rasm: 3:4 (marketplace standart)\n"
-            "🏪 Uzum, Wildberries uchun tayyor\n\n"
-            "Boshlash uchun interfeys tilini tanlang 👇"
+            "🇺🇿 Bu bot mahsulot rasmini professional infografik rasmga aylantiradi.\n"
+            "🇷🇺 Этот бот превращает фото товара в профессиональную инфографику.\n\n"
+            "Tilni tanlang / Выберите язык 👇"
         ),
-        "choose_text_lang": "📝 Infografik ichidagi yozuvlar qaysi tilda bo'lsin?",
-        "setup_done": (
-            "✅ <b>Sozlamalar saqlandi!</b>\n\n"
-            "Endi menga mahsulot rasmini yuboring — "
-            "men uni infografik rasmga aylantirib beraman.\n\n"
-            "📸 Rasmni oddiy rasm sifatida yuboring"
+        "choose_text_lang": "📝 Infografik va matnlar qaysi tilda bo'lsin?",
+        "choose_tariff": (
+            "📦 <b>Tarifni tanlang:</b>\n\n"
+            "1️⃣ <b>Infografika</b> — 2 ta infografik rasm\n"
+            "2️⃣ <b>Infografika + Matn</b> — 2 infografik + kartochka matnlari\n"
+            "3️⃣ <b>Infografika + Tavsif rasmlari</b> — 2 infografik + 2 reklama rasm\n"
+            "4️⃣ <b>To'liq paket</b> — 2 infografik + 2 reklama rasm + matnlar"
         ),
-        "photo_received": "🎨 <b>Rasmingiz qabul qilindi!</b>",
-        "done": "✅ <b>2 ta variant tayyor!</b>\n\n📐 Marketplace uchun tayyor\n🔄 Yana rasm yuboring!",
-        "done_single": "✅ <b>Infografik tayyor!</b>\n🔄 Yana rasm yuboring!",
-        "download": "💾 Yuklab olish",
-        "send_photo": "📸 Menga <b>mahsulot rasmini</b> yuboring!",
-        "send_as_photo": "📸 Rasmni <b>fayl sifatida emas</b>, oddiy rasm sifatida yuboring!",
+        "setup_done": "✅ <b>Sozlamalar saqlandi!</b>\n\n📸 Endi mahsulot rasmini yuboring!",
         "busy": "⏳ Oldingi rasmingiz hali tayyor bo'lmadi. Kuting...",
         "error": "❌ <b>Xatolik yuz berdi</b>",
         "error_billing": "💳 OpenAI hisobida mablag' yetarli emas.",
         "error_rate": "⏱ Juda ko'p so'rov. 1 daqiqadan keyin urinib ko'ring.",
         "error_safety": "🚫 Rasm safety filtriga tushdi. Boshqa rasm yuboring.",
-        "error_copyright": (
-            "⚠️ <b>Litsenziyalangan personaj aniqlandi</b>\n\n"
-            "🔍 Aniqlangan: <code>{keyword}</code>\n\n"
-            "OpenAI copyright personajlar (Disney, Marvel, Pokemon va h.k.) "
-            "bilan infografik yaratishni taqiqlaydi.\n\n"
-            "📸 Copyright personajsiz mahsulot rasmini yuboring."
-        ),
-        "help": (
-            "📖 <b>Yordam</b>\n\n"
-            "🔹 Mahsulot rasmini yuboring\n"
-            "🔹 AI tahlil + infografik yaratadi\n"
-            "🔹 ~40-60 soniyada 2 ta variant tayyor\n\n"
-            "⚙️ Sozlamalar — tilni o'zgartirish\n"
-            "⚠️ Bir vaqtda bitta rasm yuboring"
-        ),
-        # Progress bar bosqichlari
+        "error_copyright": "⚠️ <b>Litsenziyalangan personaj aniqlandi:</b> <code>{keyword}</code>\n\nBoshqa rasm yuboring.",
+        "help": "📖 <b>Yordam</b>\n\n🔹 Mahsulot rasmini yuboring\n🔹 Tanlangan tarifga mos natija tayyor bo'ladi\n\n⚙️ Sozlamalar — til/tarif o'zgartirish",
+        "done_infographic": "✅ <b>Infografik rasmlar tayyor!</b>",
+        "done_promo": "✅ <b>Tavsif rasmlari tayyor!</b>",
+        "done_text": "✅ <b>Kartochka matnlari tayyor!</b>",
+        "send_photo": "📸 Menga <b>mahsulot rasmini</b> yuboring!",
         "progress": [
             {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Mahsulot tahlil qilinmoqda...", "tip": "💡 Professional infografik sotuvni 40% ga oshiradi!"},
-            {"bar": "▓▓▓▓░░░░░░", "pct": "35%", "stage": "✏️ Dizayn prompti yaratilmoqda...", "tip": "📸 AI mahsulotga mos rang va uslub tanlaydi"},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "50%", "stage": "🎨 Fon va kompozitsiya tanlanmoqda...", "tip": "🏪 Rasm Uzum Market standartiga mos bo'ladi"},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "60%", "stage": "🖼 Infografik generatsiya qilinmoqda...", "tip": "⏱ Taxminan 30 soniya qoldi..."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✨ Matn va elementlar joylashtirilmoqda...", "tip": "📝 Yozuvlar imlo xatosiz bo'ladi"},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "80%", "stage": "🔧 Sifat tekshirilmoqda...", "tip": "🎯 2 ta variant tayyorlanmoqda"},
-            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "90%", "stage": "📦 Rasmlar tayyorlanmoqda...", "tip": "✅ Deyarli tayyor!"},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Prompt yaratilmoqda...", "tip": "📸 AI mahsulotga mos dizayn tanlaydi"},
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Infografik yaratilmoqda...", "tip": "🏪 Rasm Uzum Market standartiga mos bo'ladi"},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Tavsif rasmlari yaratilmoqda...", "tip": "⏱ Biroz kuting..."},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Kartochka matnlari tayyorlanmoqda...", "tip": "📝 Matnlar 2 tilda tayyorlanmoqda"},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 To'liq tavsif yozilmoqda...", "tip": "🎯 3000+ belgilik batafsil tavsif"},
+            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Natijalar tayyorlanmoqda...", "tip": "✅ Deyarli tayyor!"},
         ],
     },
     "ru": {
         "welcome": (
             "🎨 <b>Marketplace Инфографик Бот</b>\n\n"
-            "Этот бот превращает фото товара в профессиональную\n"
-            "инфографику для маркетплейса.\n\n"
-            "📸 <b>Как это работает:</b>\n"
-            "1. Отправьте фото товара\n"
-            "2. ИИ проанализирует товар\n"
-            "3. Подготовит 2 варианта\n\n"
-            "📐 Размер: 3:4 (стандарт маркетплейса)\n"
-            "🏪 Готово для Uzum, Wildberries\n\n"
-            "Для начала выберите язык интерфейса 👇"
+            "🇺🇿 Bu bot mahsulot rasmini professional infografik rasmga aylantiradi.\n"
+            "🇷🇺 Этот бот превращает фото товара в профессиональную инфографику.\n\n"
+            "Tilni tanlang / Выберите язык 👇"
         ),
-        "choose_text_lang": "📝 На каком языке должен быть текст на инфографике?",
-        "setup_done": (
-            "✅ <b>Настройки сохранены!</b>\n\n"
-            "Теперь отправьте мне фото товара — "
-            "я превращу его в инфографику.\n\n"
-            "📸 Отправьте фото как обычное изображение"
+        "choose_text_lang": "📝 На каком языке инфографика и тексты?",
+        "choose_tariff": (
+            "📦 <b>Выберите тариф:</b>\n\n"
+            "1️⃣ <b>Инфографика</b> — 2 варианта инфографики\n"
+            "2️⃣ <b>Инфографика + Текст</b> — 2 инфографики + тексты карточки\n"
+            "3️⃣ <b>Инфографика + Рекл. фото</b> — 2 инфографики + 2 рекламных фото\n"
+            "4️⃣ <b>Полный пакет</b> — 2 инфографики + 2 рекл. фото + тексты"
         ),
-        "photo_received": "🎨 <b>Фото получено!</b>",
-        "done": "✅ <b>2 варианта готовы!</b>\n\n📐 Готово для маркетплейса\n🔄 Отправьте ещё фото!",
-        "done_single": "✅ <b>Инфографика готова!</b>\n🔄 Отправьте ещё фото!",
-        "download": "💾 Скачать",
-        "send_photo": "📸 Отправьте мне <b>фото товара</b>!",
-        "send_as_photo": "📸 Отправьте как <b>обычное фото</b>, не как файл!",
-        "busy": "⏳ Предыдущее фото ещё обрабатывается. Подождите...",
+        "setup_done": "✅ <b>Настройки сохранены!</b>\n\n📸 Отправьте фото товара!",
+        "busy": "⏳ Предыдущее фото обрабатывается...",
         "error": "❌ <b>Произошла ошибка</b>",
         "error_billing": "💳 Недостаточно средств на счёте OpenAI.",
         "error_rate": "⏱ Слишком много запросов. Попробуйте через минуту.",
-        "error_safety": "🚫 Фото заблокировано фильтром. Отправьте другое фото.",
-        "error_copyright": (
-            "⚠️ <b>Обнаружен лицензированный персонаж</b>\n\n"
-            "🔍 Найдено: <code>{keyword}</code>\n\n"
-            "OpenAI запрещает генерацию с персонажами "
-            "(Disney, Marvel, Pokemon и др.).\n\n"
-            "📸 Отправьте фото без лицензированных персонажей."
-        ),
-        "help": (
-            "📖 <b>Помощь</b>\n\n"
-            "🔹 Отправьте фото товара\n"
-            "🔹 ИИ анализирует + создаёт инфографику\n"
-            "🔹 2 варианта за ~40-60 секунд\n\n"
-            "⚙️ Настройки — сменить язык\n"
-            "⚠️ Отправляйте по одному фото"
-        ),
+        "error_safety": "🚫 Фото заблокировано фильтром.",
+        "error_copyright": "⚠️ <b>Лицензированный персонаж:</b> <code>{keyword}</code>\n\nОтправьте другое фото.",
+        "help": "📖 <b>Помощь</b>\n\n🔹 Отправьте фото товара\n🔹 Результат зависит от тарифа\n\n⚙️ Настройки — сменить язык/тариф",
+        "done_infographic": "✅ <b>Инфографика готова!</b>",
+        "done_promo": "✅ <b>Рекламные фото готовы!</b>",
+        "done_text": "✅ <b>Тексты для карточки готовы!</b>",
+        "send_photo": "📸 Отправьте <b>фото товара</b>!",
         "progress": [
             {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара...", "tip": "💡 Качественная инфографика увеличивает продажи на 40%!"},
-            {"bar": "▓▓▓▓░░░░░░", "pct": "35%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает цвета и стиль под товар"},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "50%", "stage": "🎨 Выбор фона и композиции...", "tip": "🏪 Изображение будет соответствовать стандартам Uzum Market"},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "60%", "stage": "🖼 Генерация инфографики...", "tip": "⏱ Примерно 30 секунд..."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✨ Размещение текста и элементов...", "tip": "📝 Тексты без орфографических ошибок"},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "80%", "stage": "🔧 Проверка качества...", "tip": "🎯 Готовятся 2 варианта"},
-            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "90%", "stage": "📦 Подготовка изображений...", "tip": "✅ Почти готово!"},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает стиль под товар"},
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Генерация инфографики...", "tip": "🏪 Изображение под стандарты Uzum Market"},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Рекламные фото...", "tip": "⏱ Подождите немного..."},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Тексты карточки...", "tip": "📝 Тексты на 2 языках"},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 Полное описание...", "tip": "🎯 Подробное описание 3000+ символов"},
+            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Подготовка...", "tip": "✅ Почти готово!"},
         ],
     },
 }
 
+def t(uid, key, **kw):
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    txt = TEXTS.get(lang, TEXTS["uz"]).get(key, key)
+    return txt.format(**kw) if isinstance(txt, str) and kw else txt
 
-def t(user_id: int, key: str, **kwargs) -> str:
-    lang = user_settings.get(user_id, {}).get("ui_lang", "uz")
-    text = TEXTS.get(lang, TEXTS["uz"]).get(key, key)
-    if isinstance(text, str) and kwargs:
-        text = text.format(**kwargs)
-    return text
+def get_text_lang(uid): return user_settings.get(uid, {}).get("text_lang", "ru")
+def get_tariff(uid): return user_settings.get(uid, {}).get("tariff", 1)
 
-
-def get_text_lang(user_id: int) -> str:
-    return user_settings.get(user_id, {}).get("text_lang", "ru")
-
-
-def get_progress(user_id: int, step: int) -> str:
-    lang = user_settings.get(user_id, {}).get("ui_lang", "uz")
+def get_progress(uid, step):
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
     stages = TEXTS.get(lang, TEXTS["uz"])["progress"]
-    idx = min(step, len(stages) - 1)
-    s = stages[idx]
-    return (
-        f"🎨 <b>Infografik yaratilmoqda</b>\n\n"
-        f"{s['bar']}  {s['pct']}\n\n"
-        f"{s['stage']}\n\n"
-        f"{s['tip']}"
-    )
+    s = stages[min(step, len(stages)-1)]
+    return f"🎨 <b>Ishlanmoqda</b>\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
 
 
 # ══════════════════════════════════════════════════════════════════
-# 1-BOSQICH: Mahsulotni tahlil qilish (alohida call)
+# 1. TAHLIL (avvalgi ishlagan versiya)
 # ══════════════════════════════════════════════════════════════════
 
 ANALYSIS_PROMPT = """You are a professional product designer and advertising analyst.
@@ -244,49 +178,60 @@ Return ONLY structured output in this format:
 
 6. Design Elements:
 - Icons (type and style):
-- Decorative elements:
+- Decorative elements (water drops, glow, particles, etc.):
 
 7. Key Selling Points:
 - Main marketing message:
-- Target audience:
+- Target audience (if inferable):
 
 IMPORTANT:
-- Do NOT hallucinate brand details if not visible
-- If brand IS visible, write it EXACTLY as shown — do NOT translate
+- NEVER include any brand names in your analysis — skip brand entirely
+- Write "Brand: not applicable" for the brand field
+- Focus only on product type, features, colors, materials
 - Keep descriptions short and precise
 - Focus on visual and structural analysis only"""
 
-
-def analyze_product(image_bytes: bytes) -> str:
-    base64_image = base64.b64encode(image_bytes).decode("utf-8")
-    response = client.chat.completions.create(
+def analyze_product(image_bytes):
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    r = client.chat.completions.create(
         model="gpt-4o-mini",
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}},
-                {"type": "text", "text": ANALYSIS_PROMPT},
-            ],
-        }],
-        max_tokens=1000,
-        temperature=0.3,
+        messages=[{"role": "user", "content": [
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+            {"type": "text", "text": ANALYSIS_PROMPT},
+        ]}],
+        max_tokens=1000, temperature=0.3,
     )
-    analysis = response.choices[0].message.content.strip()
-    logger.info(f"Analysis done ({len(analysis)} chars)")
-    return analysis
+    result = r.choices[0].message.content.strip()
+    logger.info(f"Analysis: {len(result)} chars")
+    return result
+
+COPYRIGHT_KEYWORDS = [
+    "disney", "stitch", "angel", "mickey", "minnie", "frozen", "elsa",
+    "marvel", "spider-man", "spiderman", "avengers", "iron man",
+    "dc comics", "batman", "superman", "pokemon", "pikachu",
+    "naruto", "dragon ball", "hello kitty", "sanrio", "pixar",
+    "star wars", "nintendo", "mario", "sonic", "peppa pig",
+    "paw patrol", "barbie", "transformers", "lego", "spongebob",
+]
+
+def check_copyright(text):
+    lower = text.lower()
+    for kw in COPYRIGHT_KEYWORDS:
+        if kw in lower: return kw
+    return None
 
 
 # ══════════════════════════════════════════════════════════════════
-# 2-BOSQICH: Tahlil asosida generation prompt yozish (alohida call)
+# 2. INFOGRAFIK PROMPT (avvalgi ishlagan versiya — to'liq)
 # ══════════════════════════════════════════════════════════════════
 
-def get_prompt_writer_system(text_lang: str) -> str:
+def get_infographic_prompt_system(text_lang):
     if text_lang == "uz":
-        lang_rule = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
-        banned = """BANNED: "aksiya", "bepul", "buyurtma berish", "sotib olish", "keshbek", "yangilik", "new", "asl nusxa", "sotuv", "sale", "chegirma", "trend", "top", "xit", "eng yaxshi", "1-raqamli", "arzon", "foydali narx"."""
+        lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
+        banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
     else:
-        lang_rule = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
-        banned = """BANNED: "акция", "бесплатно", "заказать", "купить", "кешбэк", "новинка", "new", "оригинал", "распродажа", "sale", "скидка", "тренд", "топ", "хит", "лучший", "№1", "лидер продаж", "дёшево", "выгодная цена"."""
+        lang_instruction = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
+        banned = 'BANNED: "акция", "бесплатно", "скидка", "топ", "хит", "новинка", "лучший", "дёшево".'
 
     return f"""You are an expert marketplace infographic prompt engineer.
 
@@ -303,305 +248,541 @@ Create a high-end product infographic advertisement based on the following analy
 [INSERT THE FULL ANALYSIS HERE]
 
 Requirements:
-- Clean, modern, minimalistic advertising design
-- Perfect, readable typography (NO distorted or broken text)
-- Correct grammar and professional wording
+- Keep the same composition and layout style
+- Maintain similar visual hierarchy (headline, features, product placement)
+- Use a clean, modern, minimalistic advertising design
+- Ensure perfect, readable typography (NO distorted or broken text)
+- Use correct grammar and professional wording
 
 Design details:
-- Background: improved style (more realistic, more depth)
+- Background: recreate similar style but improved (more realistic, more depth)
 - Lighting: soft studio lighting with realistic reflections
 - Product: ultra-realistic, sharp, slightly tilted for depth
 - Colors: consistent palette, premium look
 
 Text:
-{lang_rule}
+{lang_instruction}
 - Put every text element in "quotes" for accurate rendering
 - Keep SHORT: 2-4 words titles, 5-8 words descriptions
-- NO CapsLock except brand names
+- NO CapsLock
 - NO emoji in image text
 
 Features:
-- 3-4 feature points with minimal icons on LEFT side
-- Each: icon + bold title + short description
-- VERTICALLY arranged (list style)
-- NO bottom 3 blocks/cards
+- Show 3-4 feature points with minimal icons on the LEFT side
+- Each feature: icon + bold title + short description below
+- Features arranged VERTICALLY (list style), not horizontally
+- NO bottom 3 blocks/cards — use feature list instead
 
 Layout (3:4 portrait):
-- Product as hero image (center/right, ~50-60%)
+- Product as hero image (center/right, ~50-60% of image)
 - Headline top-left, large bold text
-- Subheadline below, smaller
-- Features list on left side
-- Badge (volume/size) on right if applicable
-- Clean bottom with closing tagline
+- Subheadline below headline, smaller
+- Features list on the left side, vertically arranged
+- Badge (if applicable) on the right side
+- Clean bottom section with closing tagline
 
 Extras:
-- Subtle realistic elements depending on product
+- Add subtle realistic elements depending on product
+- Maintain balanced spacing and alignment
 - Marketplace compliant (Uzum, Wildberries style)
 
 Quality:
-- Ultra realistic, commercial advertising quality
+- Ultra realistic
+- 4K commercial advertising quality
 - No artifacts, no text distortion, no misspellings
 
-⚠️ UZUM MARKET RULES:
+⚠️ UZUM MARKET RULES (MANDATORY):
 {banned}
 - NO comparative/superlative claims
 - NO excessive punctuation
-- Brand names in ORIGINAL form — NEVER translate
-- Do NOT add brand names that are NOT in the analysis
+- NEVER put any brand name or logo text on the image — this is CRITICAL
+- Wrong brand name = product gets BLOCKED on marketplace
+- Instead of brand name, use product type or feature as headline
 
-CRITICAL:
+CRITICAL RULES:
 1. ALL text spelled PERFECTLY
 2. Put all text in "quotes"
-3. NEVER add brand names not mentioned in analysis
+3. ABSOLUTELY NO BRAND NAMES anywhere on the image — not in headline, not in badge, not anywhere
 4. NEVER use banned words
+5. Use product type + key feature as headline instead of brand (e.g., "Акустическая гитара" not "Kabat")
 """
 
-
-def write_generation_prompt(analysis: str, text_lang: str) -> str:
-    system = get_prompt_writer_system(text_lang)
-    response = client.chat.completions.create(
+def write_infographic_prompt(analysis, text_lang):
+    r = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": system},
+            {"role": "system", "content": get_infographic_prompt_system(text_lang)},
             {"role": "user", "content": f"Based on this product analysis, write the image generation prompt:\n\n{analysis}"},
         ],
-        max_tokens=2000,
-        temperature=0.7,
+        max_tokens=2000, temperature=0.7,
     )
-    prompt = response.choices[0].message.content.strip()
-    logger.info(f"Prompt written ({len(prompt)} chars)")
+    prompt = r.choices[0].message.content.strip()
+    logger.info(f"Infographic prompt: {len(prompt)} chars")
     return prompt
 
 
-# ── Copyright tekshiruv ──────────────────────────────────────────
-COPYRIGHT_KEYWORDS = [
-    "disney", "stitch", "angel", "mickey", "minnie", "frozen", "elsa",
-    "marvel", "spider-man", "spiderman", "avengers", "iron man",
-    "dc comics", "batman", "superman", "wonder woman",
-    "pokemon", "pikachu", "naruto", "dragon ball", "goku",
-    "hello kitty", "sanrio", "pixar", "toy story", "finding nemo",
-    "star wars", "nintendo", "mario", "sonic", "peppa pig",
-    "paw patrol", "barbie", "transformers", "lego",
-    "looney tunes", "tom and jerry", "spongebob",
-]
-
-
-def check_copyright(prompt: str) -> str | None:
-    lower = prompt.lower()
-    for keyword in COPYRIGHT_KEYWORDS:
-        if keyword in lower:
-            return keyword
-    return None
-
-
 # ══════════════════════════════════════════════════════════════════
-# PARALLEL RASM GENERATSIYA (gpt-image-2, low)
+# 3. INFOGRAFIK GENERATSIYA
 # ══════════════════════════════════════════════════════════════════
 
-def _generate_single(image_bytes: bytes, prompt: str) -> bytes:
-    """Bitta variant generatsiya (sync, thread ichida ishlaydi)"""
-    image_file = io.BytesIO(image_bytes)
-    image_file.name = "product.jpg"
+def _gen_infographic(image_bytes, prompt):
+    f = io.BytesIO(image_bytes); f.name = "product.jpg"
+    r = client.images.edit(model="gpt-image-2", image=[f], prompt=prompt, n=1, size="1104x1472", quality="low")
+    png = base64.b64decode(r.data[0].b64_json)
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    buf = io.BytesIO(); img.save(buf, format="JPEG", quality=90, optimize=True); buf.seek(0)
+    return buf.read()
 
-    response = client.images.edit(
-        model="gpt-image-2",
-        image=[image_file],
-        prompt=prompt,
-        n=1,
-        size="1056x1408",
-        quality="low",
-    )
-
-    png_bytes = base64.b64decode(response.data[0].b64_json)
-    # PNG → JPEG kompressiya
-    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-    jpg_buf = io.BytesIO()
-    img.save(jpg_buf, format="JPEG", quality=90, optimize=True)
-    jpg_buf.seek(0)
-    return jpg_buf.read()
-
-
-async def generate_variants_parallel(image_bytes: bytes, prompt: str) -> list[bytes]:
-    """2 ta variantni PARALLEL generatsiya qiladi"""
+async def gen_infographics_parallel(image_bytes, prompt):
     loop = asyncio.get_event_loop()
-
-    # 2 ta so'rovni parallel yuborish
-    task1 = loop.run_in_executor(executor, _generate_single, image_bytes, prompt)
-    task2 = loop.run_in_executor(executor, _generate_single, image_bytes, prompt)
-
-    results = await asyncio.gather(task1, task2, return_exceptions=True)
-
-    variants = []
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            logger.error(f"Variant {i+1} xatolik: {result}")
-        else:
-            variants.append(result)
-            logger.info(f"Variant {i+1} tayyor ({len(result)} bytes)")
-
-    if not variants:
-        # Ikkala variant ham xato — birinchi xatoni raise
-        raise results[0]
-
+    t1 = loop.run_in_executor(executor, _gen_infographic, image_bytes, prompt)
+    t2 = loop.run_in_executor(executor, _gen_infographic, image_bytes, prompt)
+    results = await asyncio.gather(t1, t2, return_exceptions=True)
+    variants = [r for r in results if not isinstance(r, Exception)]
+    if not variants: raise results[0]
     return variants
 
 
 # ══════════════════════════════════════════════════════════════════
-# PROGRESS BAR YANGILASH
+# 4. TAVSIF RASMLARI (2 ta, har xil xususiyat)
 # ══════════════════════════════════════════════════════════════════
 
-async def update_progress(wait_msg, user_id: int, stop_event: asyncio.Event):
-    """Har 7 sekundda progress barni yangilaydi"""
+def write_promo_prompts(analysis, text_lang):
+    """2 ta FARQLI tavsif rasm prompti yozadi"""
+    lang_name = "Uzbek" if text_lang == "uz" else "Russian"
+
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": f"""You create prompts for product PROMOTIONAL DETAIL images for marketplace product pages.
+
+These are NOT infographics. These are DETAIL/FEATURE images that show specific product features up close.
+
+Write EXACTLY 2 prompts, separated by the line: ---PROMPT2---
+
+⚠️ THE 2 PROMPTS MUST BE COMPLETELY DIFFERENT:
+- Different feature/benefit highlighted
+- Different scene/background/setting
+- Different color scheme
+- Different layout and composition
+- Different text and headlines
+
+PROMPT 1 should focus on the product's PRIMARY FEATURE (e.g., material quality, main function, key technology).
+Show the product in USE or being DEMONSTRATED. Include:
+- Bold headline in {lang_name} describing THIS feature (in "quotes")
+- The product shown from a specific angle highlighting this feature
+- Color blocks, icons, visual hierarchy
+- Feature callouts with icons and short {lang_name} text
+- Lifestyle or demonstration scene
+- Professional advertising quality
+
+PROMPT 2 should focus on a COMPLETELY DIFFERENT FEATURE (e.g., convenience, durability, design, versatility).
+Show the product in a DIFFERENT context/setting. Include:
+- Different bold headline in {lang_name} (in "quotes") — NOT similar to Prompt 1
+- Different angle, different background, different mood
+- Different color palette
+- Different feature callouts
+- Different icons and visual elements
+
+Both prompts:
+- Keep the EXACT same product from reference image, DO NOT modify
+- ABSOLUTELY NO brand names or logos on the image — brand names cause product blocking
+- Use product type and features instead of brand name
+- Square 1:1 format
+- Ultra realistic, commercial advertising quality
+- All text in {lang_name}, in "quotes", short and impactful
+- NO banned words (акция, скидка, лучший, топ, хит, бесплатно)"""},
+            {"role": "user", "content": f"Write 2 COMPLETELY DIFFERENT promo image prompts for:\n\n{analysis}"},
+        ],
+        max_tokens=2000, temperature=0.8,
+    )
+    raw = r.choices[0].message.content.strip()
+    parts = re.split(r'---PROMPT2---|---', raw)
+    prompts = [p.strip() for p in parts if p.strip()]
+    logger.info(f"Promo prompts: {len(prompts)} generated")
+    return prompts[:2] if len(prompts) >= 2 else [prompts[0], prompts[0]] if prompts else ["", ""]
+
+def _gen_promo(image_bytes, prompt):
+    f = io.BytesIO(image_bytes); f.name = "product.jpg"
+    r = client.images.edit(model="gpt-image-2", image=[f], prompt=prompt, n=1, size="1024x1024", quality="low")
+    png = base64.b64decode(r.data[0].b64_json)
+    img = Image.open(io.BytesIO(png)).convert("RGB")
+    buf = io.BytesIO(); img.save(buf, format="JPEG", quality=90, optimize=True); buf.seek(0)
+    return buf.read()
+
+async def gen_promos_parallel(image_bytes, prompts):
+    loop = asyncio.get_event_loop()
+    tasks = [loop.run_in_executor(executor, _gen_promo, image_bytes, p) for p in prompts]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    return [r for r in results if not isinstance(r, Exception)]
+
+
+# ══════════════════════════════════════════════════════════════════
+# 5. KARTOCHKA MATNLARI (2 bosqichli, avvalgi ishlagan versiya)
+# ══════════════════════════════════════════════════════════════════
+
+CARD_TEXT_SYSTEM = {
+    "uz": """Sen Uzum Market sellerlariga tovar kartochkasi matnlarini yozib beradigan yordamchisan.
+Rasmni tahlil qilib 3 ta matn tayyorla (to'liq tavsif EMAS, u alohida yoziladi).
+
+JAVOB FORMATI:
+TOVAR_NOMI_UZ: [70-90 belgi]
+TOVAR_NOMI_RU: [70-90 belgi]
+---
+QISQACHA_TAVSIF_UZ: [300-390 belgi, SEO kalit so'zlar vergul bilan, KAMIDA 20 ta kalit so'z]
+QISQACHA_TAVSIF_RU: [300-390 belgi, SEO kalit so'zlar vergul bilan, KAMIDA 20 ta kalit so'z]
+---
+XUSUSIYATLARI_UZ: [texnik list, har biri yangi qatorda, "Xususiyat: qiymat" formatda]
+XUSUSIYATLARI_RU: [texnik list, har biri yangi qatorda, "Параметр: значение" formatda]
+
+📌 TOVAR NOMI (70-90 belgi):
+- Sxema: Tovar turi + Brend (agar bor) + Kalit xususiyatlar
+- Kamida 3 so'z, xaridor qidiradigan so'zlar
+- 70 belgidan KAM bo'lmasin, 90 dan oshmasin
+- Misol: "Skovorda antiyopishmas qoplama 24 sm, shisha qopqoq bilan, gazga mos, alyuminiy korpus"
+
+📝 QISQACHA TAVSIF — SEO KALIT SO'ZLAR (300-390 belgi):
+Jumla emas, vergul bilan ajratilgan kalit so'zlar. KAMIDA 20 ta. 300 belgidan KAM bo'lmasin.
+Misol: "skovorda, qozon, antiyopishmas, kukmara, oshxona idishi, gazga mos, pishirish uchun, yog'siz pishirish, granit qoplama, shisha qopqoq, oson yuvish, chidamli idish, uy uchun skovorda, non stick pan, professional oshpaz idishi, kundalik foydalanish, sovg'a uchun idish, zamonaviy oshxona"
+
+🏷 XUSUSIYATLAR — texnik list:
+Misol:
+"Turi: skovorda
+Diametr: 24 sm
+Qoplama: antiyopishmas granit
+Korpus: alyuminiy
+Qopqoq: shisha
+Tutqich: bakelitli
+Maqsad: gazli va elektr plitalarga mos
+Og'irlik: taxminan 1,2 kg"
+
+🚫 Stop-so'zlar: aksiya, bepul, chegirma, top, xit, eng yaxshi, arzon
+🚫 Brend nomini UMUMAN ishlatma — tovar nomi va tasvirda brend bo'lmasin""",
+
+    "ru": """Ты помощник, который пишет тексты карточек Uzum Market.
+Проанализируй фото и напиши 3 текста (полное описание пишется отдельно).
+
+ФОРМАТ:
+TOVAR_NOMI_UZ: [70-90 символов]
+TOVAR_NOMI_RU: [70-90 символов]
+---
+QISQACHA_TAVSIF_UZ: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20 слов]
+QISQACHA_TAVSIF_RU: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20 слов]
+---
+XUSUSIYATLARI_UZ: [технический список, каждый на новой строке, "Параметр: значение"]
+XUSUSIYATLARI_RU: [технический список, каждый на новой строке, "Параметр: значение"]
+
+📌 НАЗВАНИЕ (70-90 символов):
+- Схема: Тип + Бренд (если есть) + Ключевые характеристики
+- Минимум 3 слова, НЕ МЕНЬШЕ 70 символов
+- Пример: "Сковорода с антипригарным покрытием 24 см, стеклянная крышка, для газа, алюминиевый корпус"
+
+📝 КРАТКОЕ — SEO ключевые слова (300-390 символов):
+Не предложения, а слова через запятую. МИНИМУМ 20 штук. НЕ МЕНЬШЕ 300 символов.
+Пример: "сковорода, казан, антипригарная, kukmara, кухонная посуда, для газа, готовка, без масла, гранитное покрытие, стеклянная крышка, легко моется, прочная посуда, домашняя сковорода, non stick pan, профессиональная посуда, ежедневное использование, подарок, современная кухня"
+
+🏷 ХАРАКТЕРИСТИКИ — технический список:
+Пример:
+"Тип: сковорода
+Диаметр: 24 см
+Покрытие: антипригарное гранитное
+Корпус: алюминий
+Крышка: стеклянная
+Ручка: бакелитовая
+Назначение: газовые и электроплиты
+Вес: около 1,2 кг"
+
+🚫 Стоп-слова: акция, бесплатно, скидка, топ, хит, лучший, дёшево
+🚫 НИКОГДА не используй названия брендов — ни в названии, ни в описании""",
+}
+
+DESCRIPTION_SYSTEM = {
+    "uz": """Sen Uzum Market uchun UZUN tovar tavsifi yozuvchisisan.
+FAQAT to'liq tavsif yoz, 2 tilda.
+
+JAVOB FORMATI:
+TAVSIF_UZ:
+[o'zbekcha tavsif]
+
+TAVSIF_RU:
+[ruscha tavsif]
+
+📄 QOIDALAR:
+- Har bir tildagi tavsif KAMIDA 1500 belgi (jami 3000+)
+- KAMIDA 10-12 paragraf, har biri 3-4 jumla
+- Paragraflar orasida bo'sh qator
+- Tabiiy, odam yozgandek, sodda tilda yoz
+- Bold ishlatma
+
+PARAGRAFLAR:
+1. Umumiy tavsif — nima uchun va kimga
+2. Material va sifati batafsil
+3. O'lcham, hajm, texnik xususiyatlar
+4. Dizayn va tashqi ko'rinish
+5. Qulayliklari kundalik foydalanishda
+6. Kimga mos — maqsadli auditoriya
+7. Sovg'a sifatida qo'llash
+8. Saqlash va parvarishlash maslahatlar
+9. Boshqa o'xshashlardan farqi
+10. Qadoqlash va yetkazib berish
+11. Qo'shimcha foydalanish usullari
+12. Yakuniy xulosa va tavsiya
+
+⚠️ 1500 BELGIDAN KAM = XATO. Uzunroq yoz.
+🚫 Stop-so'zlar taqiqlangan. Brend nomini UMUMAN qo'shma.""",
+
+    "ru": """Ты пишешь ДЛИННЫЕ описания товаров для Uzum Market.
+Только полное описание, на 2 языках.
+
+ФОРМАТ:
+TAVSIF_UZ:
+[узбекский]
+
+TAVSIF_RU:
+[русский]
+
+📄 ПРАВИЛА:
+- Каждое описание МИНИМУМ 1500 символов (итого 3000+)
+- МИНИМУМ 10-12 абзацев по 3-4 предложения
+- Между абзацами пустая строка
+- Естественно, простым языком
+- Без жирного выделения
+
+АБЗАЦЫ:
+1. Общее описание — что это и для кого
+2. Материал и качество подробно
+3. Размер, объём, технические параметры
+4. Дизайн и внешний вид
+5. Удобство в повседневном использовании
+6. Целевая аудитория
+7. Как подарок
+8. Хранение и уход
+9. Отличия от аналогов
+10. Упаковка и доставка
+11. Дополнительные способы использования
+12. Итоговый вывод и рекомендация
+
+⚠️ МЕНЬШЕ 1500 СИМВОЛОВ = ОШИБКА. Пиши длиннее.
+🚫 Стоп-слова запрещены. НИКОГДА не добавляй названия брендов.""",
+}
+
+def gen_card_step1(image_bytes, text_lang):
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": CARD_TEXT_SYSTEM.get(text_lang, CARD_TEXT_SYSTEM["ru"])},
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+                {"type": "text", "text": "Generate product name (70-90 chars), SEO keywords (300-390 chars, 20+ words), and technical features list."},
+            ]},
+        ],
+        max_tokens=2000, temperature=0.5,
+    )
+    raw = r.choices[0].message.content.strip()
+    logger.info(f"Card step1: {len(raw)} chars")
+    result = {"name_uz": "", "name_ru": "", "short_uz": "", "short_ru": "", "feat_uz": "", "feat_ru": ""}
+    for section in raw.split("---"):
+        s = section.strip()
+        if "TOVAR_NOMI_UZ:" in s and "TOVAR_NOMI_RU:" in s:
+            p = s.split("TOVAR_NOMI_RU:"); result["name_uz"] = p[0].replace("TOVAR_NOMI_UZ:","").strip(); result["name_ru"] = p[1].strip()
+        elif "QISQACHA_TAVSIF_UZ:" in s and "QISQACHA_TAVSIF_RU:" in s:
+            p = s.split("QISQACHA_TAVSIF_RU:"); result["short_uz"] = p[0].replace("QISQACHA_TAVSIF_UZ:","").strip(); result["short_ru"] = p[1].strip()
+        elif "XUSUSIYATLARI_UZ:" in s and "XUSUSIYATLARI_RU:" in s:
+            p = s.split("XUSUSIYATLARI_RU:"); result["feat_uz"] = p[0].replace("XUSUSIYATLARI_UZ:","").strip(); result["feat_ru"] = p[1].strip()
+    return result
+
+def gen_card_step2(image_bytes, text_lang, context):
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    r = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": DESCRIPTION_SYSTEM.get(text_lang, DESCRIPTION_SYSTEM["ru"])},
+            {"role": "user", "content": [
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
+                {"type": "text", "text": f"Mahsulot:\n{context}\n\nUZUN tavsif yoz, har tilda KAMIDA 1500 belgi, 10-12 paragraf."},
+            ]},
+        ],
+        max_tokens=4000, temperature=0.6,
+    )
+    raw = r.choices[0].message.content.strip()
+    logger.info(f"Card step2: {len(raw)} chars")
+    if "TAVSIF_RU:" in raw:
+        p = raw.split("TAVSIF_RU:")
+        return p[0].replace("TAVSIF_UZ:","").strip(), p[1].strip()
+    return raw, raw
+
+
+# ══════════════════════════════════════════════════════════════════
+# YORDAMCHILAR
+# ══════════════════════════════════════════════════════════════════
+
+async def update_progress(wait_msg, uid, stop):
     step = 0
-    while not stop_event.is_set():
-        try:
-            text = get_progress(user_id, step)
-            await wait_msg.edit_text(text, parse_mode=ParseMode.HTML)
-        except Exception:
-            pass
+    while not stop.is_set():
+        try: await wait_msg.edit_text(get_progress(uid, step), parse_mode=ParseMode.HTML)
+        except: pass
         step += 1
-        # 7 sekund kutish yoki stop signal
-        try:
-            await asyncio.wait_for(stop_event.wait(), timeout=7)
-            break
-        except asyncio.TimeoutError:
-            continue
+        try: await asyncio.wait_for(stop.wait(), timeout=7); break
+        except asyncio.TimeoutError: continue
+
+async def send_long(chat_id, text, parse_mode=ParseMode.HTML):
+    MAX = 4000
+    if len(text) <= MAX:
+        await bot.send_message(chat_id, text, parse_mode=parse_mode); return
+    chunks = []
+    while text:
+        if len(text) <= MAX: chunks.append(text); break
+        cut = text.rfind('\n\n', 0, MAX)
+        if cut == -1: cut = text.rfind('\n', 0, MAX)
+        if cut == -1: cut = MAX
+        chunks.append(text[:cut]); text = text[cut:].lstrip('\n')
+    for chunk in chunks:
+        try: await bot.send_message(chat_id, chunk, parse_mode=parse_mode)
+        except: await bot.send_message(chat_id, chunk)
+
+async def send_images(message, variants, label, prefix="v"):
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+    uid = message.from_user.id
+    if len(variants) >= 2:
+        mg = [
+            InputMediaPhoto(media=BufferedInputFile(file=variants[0], filename=f"{prefix}1_{uid}_{ts}.jpg"), caption=label, parse_mode=ParseMode.HTML),
+            InputMediaPhoto(media=BufferedInputFile(file=variants[1], filename=f"{prefix}2_{uid}_{ts}.jpg")),
+        ]
+        await message.answer_media_group(media=mg)
+    elif variants:
+        await message.answer_photo(photo=BufferedInputFile(file=variants[0], filename=f"{prefix}_{uid}_{ts}.jpg"), caption=label, parse_mode=ParseMode.HTML)
+    dl = "💾 Yuklab olish" if user_settings.get(uid, {}).get("ui_lang") == "uz" else "💾 Скачать"
+    for i, v in enumerate(variants):
+        await message.answer_document(document=BufferedInputFile(file=v, filename=f"{prefix}_{i+1}_{uid}_{ts}.jpg"), caption=f"{dl} {i+1}")
+
+async def send_card_texts(message, card, full_uz, full_ru):
+    uid = message.from_user.id
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    feat_uz = [l.strip() for l in card['feat_uz'].split('\n') if l.strip()]
+    feat_ru = [l.strip() for l in card['feat_ru'].split('\n') if l.strip()]
+
+    clean = lambda t: re.sub(r'\*\*(.+?)\*\*', r'\1', t)
+    full_uz, full_ru = clean(full_uz), clean(full_ru)
+
+    if lang == "uz":
+        n,s,d,f = "1. Tovar nomi","2. Tovar qisqacha tavsifi","3. Tovar tavsifi","4. Tovar xususiyatlari"
+    else:
+        n,s,d,f = "1. Название товара","2. Краткое описание товара","3. Описание товара","4. Характеристики товара"
+
+    msg1 = (f"{t(uid,'done_text')}\n\n📌 <b>{n}</b>\n\n"
+            f"🇺🇿 ({len(card['name_uz'])} belgi):\n<pre>{card['name_uz']}</pre>\n"
+            f"🇷🇺 ({len(card['name_ru'])} belgi):\n<pre>{card['name_ru']}</pre>\n\n"
+            f"📝 <b>{s}</b>\n\n"
+            f"🇺🇿 ({len(card['short_uz'])} belgi):\n<pre>{card['short_uz']}</pre>\n"
+            f"🇷🇺 ({len(card['short_ru'])} belgi):\n<pre>{card['short_ru']}</pre>")
+    await send_long(message.chat.id, msg1)
+
+    await send_long(message.chat.id, f"📄 <b>{d}</b>\n\n🇺🇿 ({len(full_uz)} belgi):\n<pre>{full_uz}</pre>")
+    await send_long(message.chat.id, f"🇷🇺 ({len(full_ru)} belgi):\n<pre>{full_ru}</pre>")
+
+    feat_msg = f"🏷 <b>{f}</b>\n\n🇺🇿:\n\n"
+    for line in feat_uz: feat_msg += f"<pre>{line}</pre>\n"
+    feat_msg += "\n🇷🇺:\n\n"
+    for line in feat_ru: feat_msg += f"<pre>{line}</pre>\n"
+    await send_long(message.chat.id, feat_msg)
 
 
 # ══════════════════════════════════════════════════════════════════
 # TELEGRAM HANDLERLARI
 # ══════════════════════════════════════════════════════════════════
 
-@router.message(CommandStart())
-async def cmd_start(message: types.Message):
-    welcome = (
-        "🎨 <b>Marketplace Infografik Bot</b>\n\n"
-        "🇺🇿 Bu bot mahsulot rasmini professional infografik rasmga aylantiradi.\n"
-        "🇷🇺 Этот бот превращает фото товара в профессиональную инфографику.\n\n"
-        "Tilni tanlang / Выберите язык 👇"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
-        ]
-    ])
-    await message.answer(welcome, parse_mode=ParseMode.HTML, reply_markup=kb)
+def get_reply_keyboard(uid):
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    if lang == "ru":
+        return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="❓ Помощь")]], resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⚙️ Sozlamalar"), KeyboardButton(text="❓ Yordam")]], resize_keyboard=True)
 
+@router.message(CommandStart())
+async def cmd_start(msg: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
+        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
+    ]])
+    await msg.answer(t(msg.from_user.id, "welcome"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 @router.callback_query(F.data.startswith("lang_ui_"))
-async def choose_ui_lang(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    lang = callback.data.replace("lang_ui_", "")
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id]["ui_lang"] = lang
-    await callback.answer()
-
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_text_uz"),
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_text_ru"),
-        ]
-    ])
-    await callback.message.edit_text(
-        t(user_id, "choose_text_lang"),
-        parse_mode=ParseMode.HTML,
-        reply_markup=kb,
-    )
-
+async def cb_ui(cb: CallbackQuery):
+    uid = cb.from_user.id
+    if uid not in user_settings: user_settings[uid] = {}
+    user_settings[uid]["ui_lang"] = cb.data.replace("lang_ui_", "")
+    await cb.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_text_uz"),
+        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_text_ru"),
+    ]])
+    await cb.message.edit_text(t(uid, "choose_text_lang"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 @router.callback_query(F.data.startswith("lang_text_"))
-async def choose_text_lang(callback: CallbackQuery):
-    user_id = callback.from_user.id
-    lang = callback.data.replace("lang_text_", "")
-    if user_id not in user_settings:
-        user_settings[user_id] = {}
-    user_settings[user_id]["text_lang"] = lang
-    await callback.answer()
+async def cb_text(cb: CallbackQuery):
+    uid = cb.from_user.id
+    if uid not in user_settings: user_settings[uid] = {}
+    user_settings[uid]["text_lang"] = cb.data.replace("lang_text_", "")
+    await cb.answer()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1️⃣ Infografika", callback_data="tariff_1")],
+        [InlineKeyboardButton(text="2️⃣ Infografika + Matn", callback_data="tariff_2")],
+        [InlineKeyboardButton(text="3️⃣ Infografika + Reklama rasmlar", callback_data="tariff_3")],
+        [InlineKeyboardButton(text="4️⃣ To'liq paket", callback_data="tariff_4")],
+    ])
+    await cb.message.edit_text(t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
-    reply_kb = get_reply_keyboard(user_id)
-    await callback.message.edit_text(
-        t(user_id, "setup_done"),
-        parse_mode=ParseMode.HTML,
-    )
-    await callback.message.answer(
-        t(user_id, "send_photo"),
-        parse_mode=ParseMode.HTML,
-        reply_markup=reply_kb,
-    )
-
-
-def get_reply_keyboard(user_id: int) -> ReplyKeyboardMarkup:
-    lang = user_settings.get(user_id, {}).get("ui_lang", "uz")
-    if lang == "ru":
-        return ReplyKeyboardMarkup(
-            keyboard=[[KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="❓ Помощь")]],
-            resize_keyboard=True,
-        )
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="⚙️ Sozlamalar"), KeyboardButton(text="❓ Yordam")]],
-        resize_keyboard=True,
-    )
-
+@router.callback_query(F.data.startswith("tariff_"))
+async def cb_tariff(cb: CallbackQuery):
+    uid = cb.from_user.id
+    if uid not in user_settings: user_settings[uid] = {}
+    user_settings[uid]["tariff"] = int(cb.data.replace("tariff_", ""))
+    await cb.answer()
+    await cb.message.edit_text(t(uid, "setup_done"), parse_mode=ParseMode.HTML)
+    await cb.message.answer(t(uid, "send_photo"), parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard(uid))
 
 @router.message(Command("settings"))
-async def cmd_settings(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
-            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
-        ]
-    ])
-    await message.answer("🌐 Tilni tanlang / Выберите язык:", reply_markup=kb)
-
+async def cmd_settings(msg: types.Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
+        InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
+    ]])
+    await msg.answer("🌐 Tilni tanlang / Выберите язык:", reply_markup=kb)
 
 @router.message(F.text.in_(["⚙️ Sozlamalar", "⚙️ Настройки"]))
-async def btn_settings(message: types.Message):
-    await cmd_settings(message)
-
-
+async def btn_settings(msg): await cmd_settings(msg)
 @router.message(F.text.in_(["❓ Yordam", "❓ Помощь"]))
-async def btn_help(message: types.Message):
-    await message.answer(t(message.from_user.id, "help"), parse_mode=ParseMode.HTML)
-
-
+async def btn_help(msg): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
 @router.message(Command("help"))
-async def cmd_help(message: types.Message):
-    await message.answer(t(message.from_user.id, "help"), parse_mode=ParseMode.HTML)
+async def cmd_help(msg): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
 
 
-# ── ASOSIY: Rasm qabul qilish ───────────────────────────────────
+# ══════════════════════════════════════════════════════════════════
+# ASOSIY: Rasm qabul qilish
+# ══════════════════════════════════════════════════════════════════
+
 @router.message(F.photo)
 async def handle_photo(message: types.Message):
-    user_id = message.from_user.id
-
-    if user_id not in user_settings or "text_lang" not in user_settings.get(user_id, {}):
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
-                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
-            ]
-        ])
-        await message.answer("⚙️ Avval tilni tanlang / Сначала выберите язык:", reply_markup=kb)
+    uid = message.from_user.id
+    if uid not in user_settings or "tariff" not in user_settings.get(uid, {}):
+        kb = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
+            InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
+        ]])
+        await message.answer("⚙️ Avval sozlamalarni tanlang:", reply_markup=kb)
         return
 
-    if user_tasks.get(user_id):
-        await message.answer(t(user_id, "busy"))
-        return
+    if user_tasks.get(uid):
+        await message.answer(t(uid, "busy")); return
 
-    user_tasks[user_id] = True
+    user_tasks[uid] = True
+    tariff = get_tariff(uid)
+    text_lang = get_text_lang(uid)
     user_msg_id = message.message_id
 
-    # Boshlang'ich progress
-    wait_msg = await message.answer(
-        get_progress(user_id, 0),
-        parse_mode=ParseMode.HTML,
-    )
-
-    # Progress yangilash taskini boshlash
-    stop_progress = asyncio.Event()
-    progress_task = asyncio.create_task(update_progress(wait_msg, user_id, stop_progress))
+    stop = asyncio.Event()
+    wait_msg = await message.answer(get_progress(uid, 0), parse_mode=ParseMode.HTML)
+    progress = asyncio.create_task(update_progress(wait_msg, uid, stop))
 
     try:
         # Rasmni yuklash
@@ -609,231 +790,93 @@ async def handle_photo(message: types.Message):
         file = await bot.get_file(photo.file_id)
         raw = await bot.download_file(file.file_path)
         image_bytes = raw.read()
-        logger.info(f"Rasm: user={user_id}, bytes={len(image_bytes)}")
+        logger.info(f"Rasm: user={uid}, tariff={tariff}, bytes={len(image_bytes)}")
 
-        # 1-bosqich: Tahlil
-        text_lang = get_text_lang(user_id)
+        # 1. Tahlil
         analysis = analyze_product(image_bytes)
-        logger.info(f"Analysis:\n{analysis}")
-
-        # Copyright tekshiruv
-        copyright_match = check_copyright(analysis)
-        if copyright_match:
-            stop_progress.set()
-            await progress_task
-            logger.warning(f"Copyright: {copyright_match}, user={user_id}")
-            await wait_msg.edit_text(
-                t(user_id, "error_copyright", keyword=copyright_match),
-                parse_mode=ParseMode.HTML,
-            )
+        cr = check_copyright(analysis)
+        if cr:
+            stop.set(); await progress
+            await wait_msg.edit_text(t(uid, "error_copyright", keyword=cr), parse_mode=ParseMode.HTML)
             return
 
-        # 2-bosqich: Prompt
-        prompt = write_generation_prompt(analysis, text_lang)
-        logger.info(f"Prompt:\n{prompt}")
+        # 2. Infografik prompt + generatsiya (tariflar 1-4)
+        inf_prompt = write_infographic_prompt(analysis, text_lang)
+        infographics = await gen_infographics_parallel(image_bytes, inf_prompt)
 
-        # 2-bosqich: 2 ta variant PARALLEL generatsiya
-        variants = await generate_variants_parallel(image_bytes, prompt)
+        # 3. Tavsif rasmlari (tariflar 3, 4)
+        promos = []
+        if tariff in (3, 4):
+            promo_prompts = write_promo_prompts(analysis, text_lang)
+            promos = await gen_promos_parallel(image_bytes, promo_prompts)
 
-        # Progress to'xtatish
-        stop_progress.set()
-        await progress_task
+        # 4. Kartochka matnlari (tariflar 2, 4)
+        card = None; full_uz = full_ru = ""
+        if tariff in (2, 4):
+            card = gen_card_step1(image_bytes, text_lang)
+            ctx = f"Tovar: {card['name_uz']}\nXususiyat: {card['feat_uz']}"
+            full_uz, full_ru = gen_card_step2(image_bytes, text_lang, ctx)
 
-        logger.info(f"{len(variants)} variant: user={user_id}")
+        # Progress stop
+        stop.set(); await progress
 
-        # Natijalarni yuborish
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        # ── NATIJALAR ────────────────────────────────────────────
+        await send_images(message, infographics, t(uid, "done_infographic"), "infographic")
 
-        if len(variants) >= 2:
-            media_group = [
-                InputMediaPhoto(
-                    media=BufferedInputFile(file=variants[0], filename=f"v1_{user_id}_{timestamp}.jpg"),
-                    caption=t(user_id, "done"),
-                    parse_mode=ParseMode.HTML,
-                ),
-                InputMediaPhoto(
-                    media=BufferedInputFile(file=variants[1], filename=f"v2_{user_id}_{timestamp}.jpg"),
-                ),
-            ]
-            await message.answer_media_group(media=media_group)
+        if promos:
+            await send_images(message, promos, t(uid, "done_promo"), "promo")
 
-            for i, variant in enumerate(variants):
-                await message.answer_document(
-                    document=BufferedInputFile(file=variant, filename=f"infographic_{i+1}_{user_id}_{timestamp}.jpg"),
-                    caption=f"{t(user_id, 'download')} — Variant {i+1}",
-                )
-        else:
-            await message.answer_photo(
-                photo=BufferedInputFile(file=variants[0], filename=f"inf_{user_id}_{timestamp}.jpg"),
-                caption=t(user_id, "done_single"),
-                parse_mode=ParseMode.HTML,
-            )
-            await message.answer_document(
-                document=BufferedInputFile(file=variants[0], filename=f"infographic_{user_id}_{timestamp}.jpg"),
-                caption=t(user_id, "download"),
-            )
+        if card:
+            await send_card_texts(message, card, full_uz, full_ru)
 
-        # Original rasmni o'chirish
-        try:
-            await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
-        except Exception:
-            pass
-
+        # Original rasm o'chirish
+        try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
+        except: pass
         await wait_msg.delete()
 
+        fin = "🔄 Yana rasm yuboring!" if user_settings.get(uid, {}).get("ui_lang") == "uz" else "🔄 Отправьте ещё фото!"
+        await message.answer(fin)
+
     except Exception as e:
-        stop_progress.set()
-        await progress_task
-
-        logger.error(f"Xatolik: user={user_id}, error={e}")
-        err_str = str(e).lower()
-
-        if "billing" in err_str or "quota" in err_str or "insufficient" in err_str:
-            error_msg = t(user_id, "error_billing")
-        elif "rate_limit" in err_str:
-            error_msg = t(user_id, "error_rate")
-        elif "moderation" in err_str or "safety" in err_str or "content_policy" in err_str:
-            error_msg = t(user_id, "error_safety")
-        else:
-            error_msg = f"<code>{str(e)[:300]}</code>"
-
-        await wait_msg.edit_text(
-            f"{t(user_id, 'error')}\n\n{error_msg}",
-            parse_mode=ParseMode.HTML,
-        )
+        stop.set(); await progress
+        logger.error(f"Xatolik: user={uid}, error={e}")
+        err = str(e).lower()
+        if "billing" in err or "quota" in err: em = t(uid, "error_billing")
+        elif "rate_limit" in err: em = t(uid, "error_rate")
+        elif "moderation" in err or "safety" in err: em = t(uid, "error_safety")
+        else: em = f"<code>{str(e)[:300]}</code>"
+        await wait_msg.edit_text(f"{t(uid, 'error')}\n\n{em}", parse_mode=ParseMode.HTML)
 
     finally:
-        user_tasks.pop(user_id, None)
-
+        user_tasks.pop(uid, None)
 
 @router.message(F.text & ~F.text.startswith("/"))
-async def handle_text(message: types.Message):
-    text = message.text
-    if text in ["⚙️ Sozlamalar", "⚙️ Настройки", "❓ Yordam", "❓ Помощь"]:
-        return  # Bu handlerlar yuqorida ishlaydi
-    await message.answer(t(message.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
-
+async def handle_text(msg):
+    if msg.text in ["⚙️ Sozlamalar", "⚙️ Настройки", "❓ Yordam", "❓ Помощь"]: return
+    await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
 
 @router.message(F.document)
-async def handle_document(message: types.Message):
-    doc = message.document
-    if doc.mime_type and doc.mime_type.startswith("image/"):
-        user_id = message.from_user.id
-
-        if user_id not in user_settings or "text_lang" not in user_settings.get(user_id, {}):
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
-                    InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
-                ]
-            ])
-            await message.answer("⚙️ Avval tilni tanlang:", reply_markup=kb)
-            return
-
-        if user_tasks.get(user_id):
-            await message.answer(t(user_id, "busy"))
-            return
-
-        user_tasks[user_id] = True
-        stop_progress = asyncio.Event()
-        wait_msg = await message.answer(get_progress(user_id, 0), parse_mode=ParseMode.HTML)
-        progress_task = asyncio.create_task(update_progress(wait_msg, user_id, stop_progress))
-
-        try:
-            file = await bot.get_file(doc.file_id)
-            raw = await bot.download_file(file.file_path)
-            image_bytes = raw.read()
-
-            text_lang = get_text_lang(user_id)
-            analysis = analyze_product(image_bytes)
-
-            copyright_match = check_copyright(analysis)
-            if copyright_match:
-                stop_progress.set()
-                await progress_task
-                await wait_msg.edit_text(t(user_id, "error_copyright", keyword=copyright_match), parse_mode=ParseMode.HTML)
-                return
-
-            prompt = write_generation_prompt(analysis, text_lang)
-
-            variants = await generate_variants_parallel(image_bytes, prompt)
-            stop_progress.set()
-            await progress_task
-
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-
-            if len(variants) >= 2:
-                media_group = [
-                    InputMediaPhoto(
-                        media=BufferedInputFile(file=variants[0], filename=f"v1_{user_id}_{timestamp}.jpg"),
-                        caption=t(user_id, "done"),
-                        parse_mode=ParseMode.HTML,
-                    ),
-                    InputMediaPhoto(
-                        media=BufferedInputFile(file=variants[1], filename=f"v2_{user_id}_{timestamp}.jpg"),
-                    ),
-                ]
-                await message.answer_media_group(media=media_group)
-                for i, v in enumerate(variants):
-                    await message.answer_document(
-                        document=BufferedInputFile(file=v, filename=f"infographic_{i+1}_{user_id}_{timestamp}.jpg"),
-                        caption=f"{t(user_id, 'download')} — Variant {i+1}",
-                    )
-            else:
-                await message.answer_photo(
-                    photo=BufferedInputFile(file=variants[0], filename=f"inf_{user_id}.jpg"),
-                    caption=t(user_id, "done_single"),
-                    parse_mode=ParseMode.HTML,
-                )
-
-            try:
-                await bot.delete_message(chat_id=message.chat.id, message_id=message.message_id)
-            except Exception:
-                pass
-            await wait_msg.delete()
-
-        except Exception as e:
-            stop_progress.set()
-            await progress_task
-            logger.error(f"Xatolik: user={user_id}, error={e}")
-            err_str = str(e).lower()
-            if "billing" in err_str or "quota" in err_str:
-                error_msg = t(user_id, "error_billing")
-            elif "moderation" in err_str or "safety" in err_str:
-                error_msg = t(user_id, "error_safety")
-            else:
-                error_msg = f"<code>{str(e)[:300]}</code>"
-            await wait_msg.edit_text(f"{t(user_id, 'error')}\n\n{error_msg}", parse_mode=ParseMode.HTML)
-        finally:
-            user_tasks.pop(user_id, None)
+async def handle_doc(msg):
+    if msg.document.mime_type and msg.document.mime_type.startswith("image/"):
+        await msg.answer("📸 Rasmni oddiy rasm sifatida yuboring!")
     else:
-        await message.answer(t(message.from_user.id, "send_as_photo"), parse_mode=ParseMode.HTML)
+        await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
 
-
-# ── Ishga tushirish ──────────────────────────────────────────────
 async def main():
     dp.include_router(router)
-
     await bot.set_my_commands([
-        BotCommand(command="start", description="Botni boshlash / Запустить бота"),
-        BotCommand(command="settings", description="Til sozlamalari / Настройки языка"),
+        BotCommand(command="start", description="Boshlash / Запустить"),
+        BotCommand(command="settings", description="Sozlamalar / Настройки"),
         BotCommand(command="help", description="Yordam / Помощь"),
     ])
-
     logger.info("=" * 50)
-    logger.info("🚀 Marketplace Infografik Bot v8")
-    logger.info("📊 Tahlil: gpt-4o-mini (alohida)")
-    logger.info("📊 Prompt: gpt-4o-mini (alohida)")
-    logger.info("📊 Rasm: gpt-image-2 (low, parallel)")
-    logger.info("📐 Output: 1056x1408 (3:4)")
-    logger.info("🔢 Variantlar: 2 ta (parallel)")
-    logger.info("🌐 Tillar: UZ / RU")
-    logger.info("💰 Narx: ~$0.014 per so'rov")
+    logger.info("🚀 Marketplace Bot v10 — 4 tarif")
+    logger.info("📊 Infografik: 1104x1472 (3:4), gpt-image-2 low")
+    logger.info("📊 Tavsif rasm: 1024x1024, gpt-image-2 low")
+    logger.info("📊 Matn: gpt-4o-mini (2 step)")
     logger.info("=" * 50)
-
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

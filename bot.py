@@ -1,7 +1,9 @@
 """
-Marketplace Infografik Bot v10
+Marketplace Infografik Bot v11
 ==============================
-4 ta tarif — avvalgi ishlagan promptlar qaytarilgan, tavsif rasmlari yaxshilangan
+Yangi: Tariflar, Balans, Namunalar tugmalari
+/start — faqat til tanlash
+Tariflar — pastdagi tugmadan
 """
 
 import os
@@ -10,6 +12,7 @@ import re
 import base64
 import logging
 import asyncio
+from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
@@ -17,7 +20,7 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
-    BufferedInputFile, InputMediaPhoto,
+    BufferedInputFile, InputMediaPhoto, FSInputFile,
     InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery,
     ReplyKeyboardMarkup, KeyboardButton, BotCommand,
 )
@@ -31,6 +34,10 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN va OPENAI_API_KEY .env faylda bo'lishi kerak!")
 
+# Asosiy papka (bot.py joylashgan joy)
+BASE_DIR = Path(__file__).parent
+TARIFF_IMAGE = BASE_DIR / "images" / "tarif.jpg"
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -40,7 +47,7 @@ dp = Dispatcher()
 router = Router()
 executor = ThreadPoolExecutor(max_workers=4)
 user_tasks = {}
-user_settings = {}
+user_settings = {}  # {uid: {"ui_lang", "text_lang", "tariff", "balance"}}
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -56,25 +63,42 @@ TEXTS = {
             "Tilni tanlang / Выберите язык 👇"
         ),
         "choose_text_lang": "📝 Infografik va matnlar qaysi tilda bo'lsin?",
-        "choose_tariff": (
-            "📦 <b>Tarifni tanlang:</b>\n\n"
-            "1️⃣ <b>Infografika</b> — 2 ta infografik rasm\n"
-            "2️⃣ <b>Infografika + Matn</b> — 2 infografik + kartochka matnlari\n"
-            "3️⃣ <b>Infografika + Tavsif rasmlari</b> — 2 infografik + 2 reklama rasm\n"
-            "4️⃣ <b>To'liq paket</b> — 2 infografik + 2 reklama rasm + matnlar"
-        ),
-        "setup_done": "✅ <b>Sozlamalar saqlandi!</b>\n\n📸 Endi mahsulot rasmini yuboring!",
+        "lang_done": "✅ <b>Til saqlandi!</b>\n\n📸 Endi mahsulot rasmini yuboring yoki pastdagi tugmalardan foydalaning.",
+        "choose_tariff": "📦 <b>Tarifni tanlang:</b>",
+        "tariff_set": "✅ <b>Tarif tanlandi: {name}</b>\n\n📸 Endi mahsulot rasmini yuboring!",
         "busy": "⏳ Oldingi rasmingiz hali tayyor bo'lmadi. Kuting...",
         "error": "❌ <b>Xatolik yuz berdi</b>",
         "error_billing": "💳 OpenAI hisobida mablag' yetarli emas.",
         "error_rate": "⏱ Juda ko'p so'rov. 1 daqiqadan keyin urinib ko'ring.",
         "error_safety": "🚫 Rasm safety filtriga tushdi. Boshqa rasm yuboring.",
         "error_copyright": "⚠️ <b>Litsenziyalangan personaj aniqlandi:</b> <code>{keyword}</code>\n\nBoshqa rasm yuboring.",
-        "help": "📖 <b>Yordam</b>\n\n🔹 Mahsulot rasmini yuboring\n🔹 Tanlangan tarifga mos natija tayyor bo'ladi\n\n⚙️ Sozlamalar — til/tarif o'zgartirish",
+        "error_no_tariff": "⚠️ Avval tarifni tanlang! Pastdagi 📦 <b>Tariflar</b> tugmasini bosing.",
+        "help": (
+            "📖 <b>Yordam</b>\n\n"
+            "🔹 📦 <b>Tariflar</b> — tarif tanlash\n"
+            "🔹 💰 <b>Balans</b> — balansingizni ko'rish\n"
+            "🔹 📋 <b>Namunalar</b> — namuna rasmlarni ko'rish\n"
+            "🔹 ⚙️ <b>Sozlamalar</b> — til o'zgartirish\n\n"
+            "📸 Mahsulot rasmini yuboring — bot ishlaydi!"
+        ),
         "done_infographic": "✅ <b>Infografik rasmlar tayyor!</b>",
         "done_promo": "✅ <b>Tavsif rasmlari tayyor!</b>",
         "done_text": "✅ <b>Kartochka matnlari tayyor!</b>",
         "send_photo": "📸 Menga <b>mahsulot rasmini</b> yuboring!",
+        "ready_with_tariff": "✅ <b>Hammasi tayyor!</b>\n\n📦 Joriy tarif: <b>{tariff}</b>\n\n📸 Mahsulot rasmini yuboring — bot ishlaydi!\n\n💡 Tarifni o'zgartirish uchun 📦 Tariflar tugmasini bosing.",
+        "balance": "💰 <b>Balansingiz:</b> {amount} so'm",
+        "balance_topup": "💳 Balansni to'ldirish",
+        "balance_topup_soon": "🔜 To'lov tizimi tez orada qo'shiladi!",
+        "samples": "📋 <b>Namunalar</b>\n\nKo'rmoqchi bo'lgan tarif namunasini tanlang:",
+        "samples_soon": "🔜 Namunalar tez orada qo'shiladi!",
+        "tariff_names": {1: "Infografika", 2: "Infografika + Matn", 3: "Infografika + Reklama rasmlar", 4: "To'liq paket"},
+        # Buttons
+        "btn_tariffs": "📦 Tariflar",
+        "btn_balance": "💰 Balans",
+        "btn_samples": "📋 Namunalar",
+        "btn_settings": "⚙️ Sozlamalar",
+        "btn_help": "❓ Yordam",
+        # Progress
         "progress": [
             {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Mahsulot tahlil qilinmoqda...", "tip": "💡 Professional infografik sotuvni 40% ga oshiradi!"},
             {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Prompt yaratilmoqda...", "tip": "📸 AI mahsulotga mos dizayn tanlaydi"},
@@ -93,32 +117,47 @@ TEXTS = {
             "Tilni tanlang / Выберите язык 👇"
         ),
         "choose_text_lang": "📝 На каком языке инфографика и тексты?",
-        "choose_tariff": (
-            "📦 <b>Выберите тариф:</b>\n\n"
-            "1️⃣ <b>Инфографика</b> — 2 варианта инфографики\n"
-            "2️⃣ <b>Инфографика + Текст</b> — 2 инфографики + тексты карточки\n"
-            "3️⃣ <b>Инфографика + Рекл. фото</b> — 2 инфографики + 2 рекламных фото\n"
-            "4️⃣ <b>Полный пакет</b> — 2 инфографики + 2 рекл. фото + тексты"
-        ),
-        "setup_done": "✅ <b>Настройки сохранены!</b>\n\n📸 Отправьте фото товара!",
+        "lang_done": "✅ <b>Язык сохранён!</b>\n\n📸 Отправьте фото товара или используйте кнопки внизу.",
+        "choose_tariff": "📦 <b>Выберите тариф:</b>",
+        "tariff_set": "✅ <b>Тариф выбран: {name}</b>\n\n📸 Отправьте фото товара!",
         "busy": "⏳ Предыдущее фото обрабатывается...",
         "error": "❌ <b>Произошла ошибка</b>",
         "error_billing": "💳 Недостаточно средств на счёте OpenAI.",
-        "error_rate": "⏱ Слишком много запросов. Попробуйте через минуту.",
+        "error_rate": "⏱ Слишком много запросов.",
         "error_safety": "🚫 Фото заблокировано фильтром.",
-        "error_copyright": "⚠️ <b>Лицензированный персонаж:</b> <code>{keyword}</code>\n\nОтправьте другое фото.",
-        "help": "📖 <b>Помощь</b>\n\n🔹 Отправьте фото товара\n🔹 Результат зависит от тарифа\n\n⚙️ Настройки — сменить язык/тариф",
+        "error_copyright": "⚠️ <b>Лицензированный персонаж:</b> <code>{keyword}</code>",
+        "error_no_tariff": "⚠️ Сначала выберите тариф! Нажмите 📦 <b>Тарифы</b> внизу.",
+        "help": (
+            "📖 <b>Помощь</b>\n\n"
+            "🔹 📦 <b>Тарифы</b> — выбрать тариф\n"
+            "🔹 💰 <b>Баланс</b> — проверить баланс\n"
+            "🔹 📋 <b>Примеры</b> — посмотреть примеры\n"
+            "🔹 ⚙️ <b>Настройки</b> — сменить язык\n\n"
+            "📸 Отправьте фото товара — бот начнёт работу!"
+        ),
         "done_infographic": "✅ <b>Инфографика готова!</b>",
         "done_promo": "✅ <b>Рекламные фото готовы!</b>",
         "done_text": "✅ <b>Тексты для карточки готовы!</b>",
         "send_photo": "📸 Отправьте <b>фото товара</b>!",
+        "ready_with_tariff": "✅ <b>Всё готово!</b>\n\n📦 Текущий тариф: <b>{tariff}</b>\n\n📸 Отправьте фото товара — бот начнёт работу!\n\n💡 Сменить тариф — кнопка 📦 Тарифы внизу.",
+        "balance": "💰 <b>Ваш баланс:</b> {amount} сум",
+        "balance_topup": "💳 Пополнить баланс",
+        "balance_topup_soon": "🔜 Система оплаты будет добавлена скоро!",
+        "samples": "📋 <b>Примеры</b>\n\nВыберите тариф для просмотра примера:",
+        "samples_soon": "🔜 Примеры будут добавлены скоро!",
+        "tariff_names": {1: "Инфографика", 2: "Инфографика + Текст", 3: "Инфографика + Рекл. фото", 4: "Полный пакет"},
+        "btn_tariffs": "📦 Тарифы",
+        "btn_balance": "💰 Баланс",
+        "btn_samples": "📋 Примеры",
+        "btn_settings": "⚙️ Настройки",
+        "btn_help": "❓ Помощь",
         "progress": [
-            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара...", "tip": "💡 Качественная инфографика увеличивает продажи на 40%!"},
-            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает стиль под товар"},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Генерация инфографики...", "tip": "🏪 Изображение под стандарты Uzum Market"},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Рекламные фото...", "tip": "⏱ Подождите немного..."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Тексты карточки...", "tip": "📝 Тексты на 2 языках"},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 Полное описание...", "tip": "🎯 Подробное описание 3000+ символов"},
+            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара...", "tip": "💡 Инфографика увеличивает продажи на 40%!"},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает стиль"},
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Генерация инфографики...", "tip": "🏪 Под стандарты Uzum Market"},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Рекламные фото...", "tip": "⏱ Подождите..."},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Тексты карточки...", "tip": "📝 На 2 языках"},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 Полное описание...", "tip": "🎯 3000+ символов"},
             {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Подготовка...", "tip": "✅ Почти готово!"},
         ],
     },
@@ -130,17 +169,29 @@ def t(uid, key, **kw):
     return txt.format(**kw) if isinstance(txt, str) and kw else txt
 
 def get_text_lang(uid): return user_settings.get(uid, {}).get("text_lang", "ru")
-def get_tariff(uid): return user_settings.get(uid, {}).get("tariff", 1)
+def get_tariff(uid): return user_settings.get(uid, {}).get("tariff", 0)
+def get_balance(uid): return user_settings.get(uid, {}).get("balance", 0)
 
 def get_progress(uid, step):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
     stages = TEXTS.get(lang, TEXTS["uz"])["progress"]
     s = stages[min(step, len(stages)-1)]
-    return f"🎨 <b>Ishlanmoqda</b>\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
+    tariff = get_tariff(uid)
+    names = TEXTS.get(lang, TEXTS["uz"])["tariff_names"]
+    tariff_name = names.get(tariff, "")
+    return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name}\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
+
+def get_reply_keyboard(uid):
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    tx = TEXTS.get(lang, TEXTS["uz"])
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text=tx["btn_tariffs"]), KeyboardButton(text=tx["btn_balance"]), KeyboardButton(text=tx["btn_samples"])],
+        [KeyboardButton(text=tx["btn_settings"]), KeyboardButton(text=tx["btn_help"])],
+    ], resize_keyboard=True)
 
 
 # ══════════════════════════════════════════════════════════════════
-# 1. TAHLIL (avvalgi ishlagan versiya)
+# TAHLIL
 # ══════════════════════════════════════════════════════════════════
 
 ANALYSIS_PROMPT = """You are a professional product designer and advertising analyst.
@@ -149,7 +200,7 @@ Return ONLY structured output in this format:
 
 1. Product Info:
 - Product type:
-- Brand (if visible):
+- Brand: not applicable
 - Category:
 
 2. Visual Style:
@@ -185,11 +236,10 @@ Return ONLY structured output in this format:
 - Target audience (if inferable):
 
 IMPORTANT:
-- NEVER include any brand names in your analysis — skip brand entirely
-- Write "Brand: not applicable" for the brand field
+- NEVER include any brand names — always write "Brand: not applicable"
+- If product has text/labels printed on it, write them EXACTLY as shown in original language — do NOT translate
 - Focus only on product type, features, colors, materials
-- Keep descriptions short and precise
-- Focus on visual and structural analysis only"""
+- Keep descriptions short and precise"""
 
 def analyze_product(image_bytes):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -222,7 +272,7 @@ def check_copyright(text):
 
 
 # ══════════════════════════════════════════════════════════════════
-# 2. INFOGRAFIK PROMPT (avvalgi ishlagan versiya — to'liq)
+# INFOGRAFIK PROMPT (avvalgi ishlagan to'liq versiya)
 # ══════════════════════════════════════════════════════════════════
 
 def get_infographic_prompt_system(text_lang):
@@ -295,16 +345,17 @@ Quality:
 {banned}
 - NO comparative/superlative claims
 - NO excessive punctuation
-- NEVER put any brand name or logo text on the image — this is CRITICAL
-- Wrong brand name = product gets BLOCKED on marketplace
+- NEVER put any brand name or logo text on the image
 - Instead of brand name, use product type or feature as headline
 
 CRITICAL RULES:
 1. ALL text spelled PERFECTLY
 2. Put all text in "quotes"
-3. ABSOLUTELY NO BRAND NAMES anywhere on the image — not in headline, not in badge, not anywhere
+3. ABSOLUTELY NO BRAND NAMES anywhere on the image
 4. NEVER use banned words
-5. Use product type + key feature as headline instead of brand (e.g., "Акустическая гитара" not "Kabat")
+5. Use product type + key feature as headline
+6. NEVER translate text that is printed/written on the product — if product has "Coffee Time" written on it, do NOT write "Kofe vaqti" or any translation. Either keep it exactly or don't include it.
+7. Any text visible on the product (labels, prints, engravings) must be kept in original language or omitted entirely — NEVER translated
 """
 
 def write_infographic_prompt(analysis, text_lang):
@@ -322,7 +373,7 @@ def write_infographic_prompt(analysis, text_lang):
 
 
 # ══════════════════════════════════════════════════════════════════
-# 3. INFOGRAFIK GENERATSIYA
+# INFOGRAFIK GENERATSIYA
 # ══════════════════════════════════════════════════════════════════
 
 def _gen_infographic(image_bytes, prompt):
@@ -344,13 +395,11 @@ async def gen_infographics_parallel(image_bytes, prompt):
 
 
 # ══════════════════════════════════════════════════════════════════
-# 4. TAVSIF RASMLARI (2 ta, har xil xususiyat)
+# TAVSIF RASMLARI (2 ta, har xil)
 # ══════════════════════════════════════════════════════════════════
 
 def write_promo_prompts(analysis, text_lang):
-    """2 ta FARQLI tavsif rasm prompti yozadi"""
     lang_name = "Uzbek" if text_lang == "uz" else "Russian"
-
     r = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -363,9 +412,9 @@ Write EXACTLY 2 prompts, separated by the line: ---PROMPT2---
 ⚠️ THE 2 PROMPTS MUST BE COMPLETELY DIFFERENT:
 - Different feature/benefit highlighted
 - Different scene/background/setting
-- Different color scheme
 - Different layout and composition
 - Different text and headlines
+- BUT the product itself must look EXACTLY THE SAME in both — same colors, same shape, same design
 
 PROMPT 1 should focus on the product's PRIMARY FEATURE (e.g., material quality, main function, key technology).
 Show the product in USE or being DEMONSTRATED. Include:
@@ -379,15 +428,23 @@ Show the product in USE or being DEMONSTRATED. Include:
 PROMPT 2 should focus on a COMPLETELY DIFFERENT FEATURE (e.g., convenience, durability, design, versatility).
 Show the product in a DIFFERENT context/setting. Include:
 - Different bold headline in {lang_name} (in "quotes") — NOT similar to Prompt 1
-- Different angle, different background, different mood
-- Different color palette
+- Different angle, different background
 - Different feature callouts
 - Different icons and visual elements
+- BUT product colors and appearance must remain IDENTICAL to the original
+
+⚠️ CRITICAL PRODUCT RULES FOR BOTH PROMPTS:
+- Product must look EXACTLY like the reference image
+- NEVER change product colors — if product is blue, it stays blue in both images
+- NEVER add patterns, decorations, or modifications to the product
+- NEVER make the product more colorful or vibrant than the original
+- Keep the product realistic and true to the reference
 
 Both prompts:
 - Keep the EXACT same product from reference image, DO NOT modify
-- ABSOLUTELY NO brand names or logos on the image — brand names cause product blocking
+- ABSOLUTELY NO brand names or logos on the image
 - Use product type and features instead of brand name
+- If product has text printed on it (like "Coffee Time"), keep it exactly as is — NEVER translate it
 - Square 1:1 format
 - Ultra realistic, commercial advertising quality
 - All text in {lang_name}, in "quotes", short and impactful
@@ -399,7 +456,7 @@ Both prompts:
     raw = r.choices[0].message.content.strip()
     parts = re.split(r'---PROMPT2---|---', raw)
     prompts = [p.strip() for p in parts if p.strip()]
-    logger.info(f"Promo prompts: {len(prompts)} generated")
+    logger.info(f"Promo prompts: {len(prompts)}")
     return prompts[:2] if len(prompts) >= 2 else [prompts[0], prompts[0]] if prompts else ["", ""]
 
 def _gen_promo(image_bytes, prompt):
@@ -418,7 +475,7 @@ async def gen_promos_parallel(image_bytes, prompts):
 
 
 # ══════════════════════════════════════════════════════════════════
-# 5. KARTOCHKA MATNLARI (2 bosqichli, avvalgi ishlagan versiya)
+# KARTOCHKA MATNLARI (2 bosqichli)
 # ══════════════════════════════════════════════════════════════════
 
 CARD_TEXT_SYSTEM = {
@@ -432,68 +489,74 @@ TOVAR_NOMI_RU: [70-90 belgi]
 QISQACHA_TAVSIF_UZ: [300-390 belgi, SEO kalit so'zlar vergul bilan, KAMIDA 20 ta kalit so'z]
 QISQACHA_TAVSIF_RU: [300-390 belgi, SEO kalit so'zlar vergul bilan, KAMIDA 20 ta kalit so'z]
 ---
-XUSUSIYATLARI_UZ: [texnik list, har biri yangi qatorda, "Xususiyat: qiymat" formatda]
-XUSUSIYATLARI_RU: [texnik list, har biri yangi qatorda, "Параметр: значение" formatda]
+XUSUSIYATLARI_UZ: [texnik list, har biri yangi qatorda, ANIQ parametr nomi bilan]
+XUSUSIYATLARI_RU: [texnik list, har biri yangi qatorda, ANIQ parametr nomi bilan]
 
-📌 TOVAR NOMI (70-90 belgi):
-- Sxema: Tovar turi + Brend (agar bor) + Kalit xususiyatlar
-- Kamida 3 so'z, xaridor qidiradigan so'zlar
-- 70 belgidan KAM bo'lmasin, 90 dan oshmasin
-- Misol: "Skovorda antiyopishmas qoplama 24 sm, shisha qopqoq bilan, gazga mos, alyuminiy korpus"
+📌 TOVAR NOMI (70-90 belgi): Tovar turi + Kalit xususiyatlar, kamida 3 so'z, 70 dan KAM bo'lmasin
+📝 QISQACHA TAVSIF (300-390 belgi): SEO kalit so'zlar vergul bilan, KAMIDA 20 ta, 300 dan KAM bo'lmasin
 
-📝 QISQACHA TAVSIF — SEO KALIT SO'ZLAR (300-390 belgi):
-Jumla emas, vergul bilan ajratilgan kalit so'zlar. KAMIDA 20 ta. 300 belgidan KAM bo'lmasin.
-Misol: "skovorda, qozon, antiyopishmas, kukmara, oshxona idishi, gazga mos, pishirish uchun, yog'siz pishirish, granit qoplama, shisha qopqoq, oson yuvish, chidamli idish, uy uchun skovorda, non stick pan, professional oshpaz idishi, kundalik foydalanish, sovg'a uchun idish, zamonaviy oshxona"
+🏷 XUSUSIYATLAR FORMATI (MUHIM!):
+Har bir qator ANIQ PARAMETR NOMI bilan boshlanishi SHART.
+"Xususiyat" so'zini kalit sifatida ISHLATMA — bu XATO.
 
-🏷 XUSUSIYATLAR — texnik list:
-Misol:
-"Turi: skovorda
+✅ TO'G'RI:
+Turi: skovorda
+Material: alyuminiy
+Rang: qora
 Diametr: 24 sm
-Qoplama: antiyopishmas granit
-Korpus: alyuminiy
-Qopqoq: shisha
-Tutqich: bakelitli
-Maqsad: gazli va elektr plitalarga mos
-Og'irlik: taxminan 1,2 kg"
+Hajm: 2 litr
+Og'irlik: 1,2 kg
+Qoplama: antiyopishmas
+Maqsad: gazli plita uchun
+
+❌ XATO:
+Xususiyat: alyuminiy
+Xususiyat: qora
+Xususiyat: 24 sm
+
+Kalit nomlar: Turi, Material, Rang, O'lcham, Hajm, Og'irlik, Diametr, Balandlik, Uzunlik, Kenglik, Qoplama, Korpus, Maqsad, Mamlakat, Komplekt, Parvarish, Shakl, Stil, Soni
 
 🚫 Stop-so'zlar: aksiya, bepul, chegirma, top, xit, eng yaxshi, arzon
-🚫 Brend nomini UMUMAN ishlatma — tovar nomi va tasvirda brend bo'lmasin""",
+🚫 Brend nomini UMUMAN ishlatma""",
 
-    "ru": """Ты помощник, который пишет тексты карточек Uzum Market.
-Проанализируй фото и напиши 3 текста (полное описание пишется отдельно).
+    "ru": """Ты помощник для карточек Uzum Market. Проанализируй фото, напиши 3 текста.
 
 ФОРМАТ:
 TOVAR_NOMI_UZ: [70-90 символов]
 TOVAR_NOMI_RU: [70-90 символов]
 ---
-QISQACHA_TAVSIF_UZ: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20 слов]
-QISQACHA_TAVSIF_RU: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20 слов]
+QISQACHA_TAVSIF_UZ: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20]
+QISQACHA_TAVSIF_RU: [300-390 символов, SEO ключевые слова через запятую, МИНИМУМ 20]
 ---
-XUSUSIYATLARI_UZ: [технический список, каждый на новой строке, "Параметр: значение"]
-XUSUSIYATLARI_RU: [технический список, каждый на новой строке, "Параметр: значение"]
+XUSUSIYATLARI_UZ: [технический список, каждый на новой строке, с КОНКРЕТНЫМ названием параметра]
+XUSUSIYATLARI_RU: [технический список, каждый на новой строке, с КОНКРЕТНЫМ названием параметра]
 
-📌 НАЗВАНИЕ (70-90 символов):
-- Схема: Тип + Бренд (если есть) + Ключевые характеристики
-- Минимум 3 слова, НЕ МЕНЬШЕ 70 символов
-- Пример: "Сковорода с антипригарным покрытием 24 см, стеклянная крышка, для газа, алюминиевый корпус"
+📌 НАЗВАНИЕ (70-90 символов): Тип + Характеристики, минимум 3 слова, НЕ МЕНЬШЕ 70
+📝 КРАТКОЕ (300-390 символов): SEO слова через запятую, МИНИМУМ 20, НЕ МЕНЬШЕ 300
 
-📝 КРАТКОЕ — SEO ключевые слова (300-390 символов):
-Не предложения, а слова через запятую. МИНИМУМ 20 штук. НЕ МЕНЬШЕ 300 символов.
-Пример: "сковорода, казан, антипригарная, kukmara, кухонная посуда, для газа, готовка, без масла, гранитное покрытие, стеклянная крышка, легко моется, прочная посуда, домашняя сковорода, non stick pan, профессиональная посуда, ежедневное использование, подарок, современная кухня"
+🏷 ФОРМАТ ХАРАКТЕРИСТИК (ВАЖНО!):
+Каждая строка начинается с КОНКРЕТНОГО НАЗВАНИЯ параметра.
+Слово "Характеристика" в качестве ключа — ЗАПРЕЩЕНО.
 
-🏷 ХАРАКТЕРИСТИКИ — технический список:
-Пример:
-"Тип: сковорода
+✅ ПРАВИЛЬНО:
+Тип: сковорода
+Материал: алюминий
+Цвет: чёрный
 Диаметр: 24 см
-Покрытие: антипригарное гранитное
-Корпус: алюминий
-Крышка: стеклянная
-Ручка: бакелитовая
-Назначение: газовые и электроплиты
-Вес: около 1,2 кг"
+Объём: 2 литра
+Вес: 1,2 кг
+Покрытие: антипригарное
+Назначение: для газовых плит
+
+❌ НЕПРАВИЛЬНО:
+Характеристика: алюминий
+Характеристика: чёрный
+Характеристика: 24 см
+
+Названия ключей: Тип, Материал, Цвет, Размер, Объём, Вес, Диаметр, Высота, Длина, Ширина, Покрытие, Корпус, Назначение, Страна, Комплект, Уход, Форма, Стиль, Количество
 
 🚫 Стоп-слова: акция, бесплатно, скидка, топ, хит, лучший, дёшево
-🚫 НИКОГДА не используй названия брендов — ни в названии, ни в описании""",
+🚫 НИКОГДА не используй названия брендов""",
 }
 
 DESCRIPTION_SYSTEM = {
@@ -507,32 +570,13 @@ TAVSIF_UZ:
 TAVSIF_RU:
 [ruscha tavsif]
 
-📄 QOIDALAR:
-- Har bir tildagi tavsif KAMIDA 1500 belgi (jami 3000+)
-- KAMIDA 10-12 paragraf, har biri 3-4 jumla
-- Paragraflar orasida bo'sh qator
-- Tabiiy, odam yozgandek, sodda tilda yoz
-- Bold ishlatma
+Har bir tildagi tavsif KAMIDA 1500 belgi, 10-12 paragraf, har biri 3-4 jumla.
+Paragraflar: umumiy, material, o'lcham, dizayn, qulaylik, auditoriya, sovg'a, parvarishlash, farqlari, qadoqlash, qo'shimcha, xulosa.
 
-PARAGRAFLAR:
-1. Umumiy tavsif — nima uchun va kimga
-2. Material va sifati batafsil
-3. O'lcham, hajm, texnik xususiyatlar
-4. Dizayn va tashqi ko'rinish
-5. Qulayliklari kundalik foydalanishda
-6. Kimga mos — maqsadli auditoriya
-7. Sovg'a sifatida qo'llash
-8. Saqlash va parvarishlash maslahatlar
-9. Boshqa o'xshashlardan farqi
-10. Qadoqlash va yetkazib berish
-11. Qo'shimcha foydalanish usullari
-12. Yakuniy xulosa va tavsiya
+⚠️ 1500 BELGIDAN KAM = XATO. Bold ishlatma. Brend nomini qo'shma.
+🚫 Stop-so'zlar taqiqlangan.""",
 
-⚠️ 1500 BELGIDAN KAM = XATO. Uzunroq yoz.
-🚫 Stop-so'zlar taqiqlangan. Brend nomini UMUMAN qo'shma.""",
-
-    "ru": """Ты пишешь ДЛИННЫЕ описания товаров для Uzum Market.
-Только полное описание, на 2 языках.
+    "ru": """Ты пишешь ДЛИННЫЕ описания для Uzum Market. Только описание, на 2 языках.
 
 ФОРМАТ:
 TAVSIF_UZ:
@@ -541,29 +585,11 @@ TAVSIF_UZ:
 TAVSIF_RU:
 [русский]
 
-📄 ПРАВИЛА:
-- Каждое описание МИНИМУМ 1500 символов (итого 3000+)
-- МИНИМУМ 10-12 абзацев по 3-4 предложения
-- Между абзацами пустая строка
-- Естественно, простым языком
-- Без жирного выделения
+Каждое МИНИМУМ 1500 символов, 10-12 абзацев по 3-4 предложения.
+Абзацы: общее, материал, размер, дизайн, удобство, аудитория, подарок, уход, отличия, упаковка, доп., вывод.
 
-АБЗАЦЫ:
-1. Общее описание — что это и для кого
-2. Материал и качество подробно
-3. Размер, объём, технические параметры
-4. Дизайн и внешний вид
-5. Удобство в повседневном использовании
-6. Целевая аудитория
-7. Как подарок
-8. Хранение и уход
-9. Отличия от аналогов
-10. Упаковка и доставка
-11. Дополнительные способы использования
-12. Итоговый вывод и рекомендация
-
-⚠️ МЕНЬШЕ 1500 СИМВОЛОВ = ОШИБКА. Пиши длиннее.
-🚫 Стоп-слова запрещены. НИКОГДА не добавляй названия брендов.""",
+⚠️ МЕНЬШЕ 1500 = ОШИБКА. Без жирного. Без брендов.
+🚫 Стоп-слова запрещены.""",
 }
 
 def gen_card_step1(image_bytes, text_lang):
@@ -574,22 +600,22 @@ def gen_card_step1(image_bytes, text_lang):
             {"role": "system", "content": CARD_TEXT_SYSTEM.get(text_lang, CARD_TEXT_SYSTEM["ru"])},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
-                {"type": "text", "text": "Generate product name (70-90 chars), SEO keywords (300-390 chars, 20+ words), and technical features list."},
+                {"type": "text", "text": "Generate product name (70-90 chars), SEO keywords (300-390 chars), and features list. NO brand names."},
             ]},
         ],
         max_tokens=2000, temperature=0.5,
     )
     raw = r.choices[0].message.content.strip()
     logger.info(f"Card step1: {len(raw)} chars")
-    result = {"name_uz": "", "name_ru": "", "short_uz": "", "short_ru": "", "feat_uz": "", "feat_ru": ""}
+    result = {"name_uz":"","name_ru":"","short_uz":"","short_ru":"","feat_uz":"","feat_ru":""}
     for section in raw.split("---"):
         s = section.strip()
         if "TOVAR_NOMI_UZ:" in s and "TOVAR_NOMI_RU:" in s:
-            p = s.split("TOVAR_NOMI_RU:"); result["name_uz"] = p[0].replace("TOVAR_NOMI_UZ:","").strip(); result["name_ru"] = p[1].strip()
+            p = s.split("TOVAR_NOMI_RU:"); result["name_uz"]=p[0].replace("TOVAR_NOMI_UZ:","").strip(); result["name_ru"]=p[1].strip()
         elif "QISQACHA_TAVSIF_UZ:" in s and "QISQACHA_TAVSIF_RU:" in s:
-            p = s.split("QISQACHA_TAVSIF_RU:"); result["short_uz"] = p[0].replace("QISQACHA_TAVSIF_UZ:","").strip(); result["short_ru"] = p[1].strip()
+            p = s.split("QISQACHA_TAVSIF_RU:"); result["short_uz"]=p[0].replace("QISQACHA_TAVSIF_UZ:","").strip(); result["short_ru"]=p[1].strip()
         elif "XUSUSIYATLARI_UZ:" in s and "XUSUSIYATLARI_RU:" in s:
-            p = s.split("XUSUSIYATLARI_RU:"); result["feat_uz"] = p[0].replace("XUSUSIYATLARI_UZ:","").strip(); result["feat_ru"] = p[1].strip()
+            p = s.split("XUSUSIYATLARI_RU:"); result["feat_uz"]=p[0].replace("XUSUSIYATLARI_UZ:","").strip(); result["feat_ru"]=p[1].strip()
     return result
 
 def gen_card_step2(image_bytes, text_lang, context):
@@ -600,7 +626,7 @@ def gen_card_step2(image_bytes, text_lang, context):
             {"role": "system", "content": DESCRIPTION_SYSTEM.get(text_lang, DESCRIPTION_SYSTEM["ru"])},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
-                {"type": "text", "text": f"Mahsulot:\n{context}\n\nUZUN tavsif yoz, har tilda KAMIDA 1500 belgi, 10-12 paragraf."},
+                {"type": "text", "text": f"Mahsulot:\n{context}\n\nUZUN tavsif yoz, har tilda KAMIDA 1500 belgi, 10-12 paragraf. Brend nomini qo'shma."},
             ]},
         ],
         max_tokens=4000, temperature=0.6,
@@ -642,8 +668,7 @@ async def send_long(chat_id, text, parse_mode=ParseMode.HTML):
         except: await bot.send_message(chat_id, chunk)
 
 async def send_images(message, variants, label, prefix="v"):
-    ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-    uid = message.from_user.id
+    ts = datetime.now().strftime('%Y%m%d_%H%M%S'); uid = message.from_user.id
     if len(variants) >= 2:
         mg = [
             InputMediaPhoto(media=BufferedInputFile(file=variants[0], filename=f"{prefix}1_{uid}_{ts}.jpg"), caption=label, parse_mode=ParseMode.HTML),
@@ -661,7 +686,6 @@ async def send_card_texts(message, card, full_uz, full_ru):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
     feat_uz = [l.strip() for l in card['feat_uz'].split('\n') if l.strip()]
     feat_ru = [l.strip() for l in card['feat_ru'].split('\n') if l.strip()]
-
     clean = lambda t: re.sub(r'\*\*(.+?)\*\*', r'\1', t)
     full_uz, full_ru = clean(full_uz), clean(full_ru)
 
@@ -677,7 +701,6 @@ async def send_card_texts(message, card, full_uz, full_ru):
             f"🇺🇿 ({len(card['short_uz'])} belgi):\n<pre>{card['short_uz']}</pre>\n"
             f"🇷🇺 ({len(card['short_ru'])} belgi):\n<pre>{card['short_ru']}</pre>")
     await send_long(message.chat.id, msg1)
-
     await send_long(message.chat.id, f"📄 <b>{d}</b>\n\n🇺🇿 ({len(full_uz)} belgi):\n<pre>{full_uz}</pre>")
     await send_long(message.chat.id, f"🇷🇺 ({len(full_ru)} belgi):\n<pre>{full_ru}</pre>")
 
@@ -692,12 +715,7 @@ async def send_card_texts(message, card, full_uz, full_ru):
 # TELEGRAM HANDLERLARI
 # ══════════════════════════════════════════════════════════════════
 
-def get_reply_keyboard(uid):
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
-    if lang == "ru":
-        return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⚙️ Настройки"), KeyboardButton(text="❓ Помощь")]], resize_keyboard=True)
-    return ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="⚙️ Sozlamalar"), KeyboardButton(text="❓ Yordam")]], resize_keyboard=True)
-
+# ── /start — faqat til tanlash ───────────────────────────────────
 @router.message(CommandStart())
 async def cmd_start(msg: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[
@@ -723,38 +741,221 @@ async def cb_text(cb: CallbackQuery):
     uid = cb.from_user.id
     if uid not in user_settings: user_settings[uid] = {}
     user_settings[uid]["text_lang"] = cb.data.replace("lang_text_", "")
+    if "balance" not in user_settings[uid]: user_settings[uid]["balance"] = 0
     await cb.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+
+    chat_id = cb.message.chat.id
+    tariff_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="1️⃣ Infografika", callback_data="tariff_1")],
         [InlineKeyboardButton(text="2️⃣ Infografika + Matn", callback_data="tariff_2")],
         [InlineKeyboardButton(text="3️⃣ Infografika + Reklama rasmlar", callback_data="tariff_3")],
         [InlineKeyboardButton(text="4️⃣ To'liq paket", callback_data="tariff_4")],
     ])
-    await cb.message.edit_text(t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=kb)
+
+    # Til tanlagandan keyin darhol tarif tanlash
+    if TARIFF_IMAGE.exists():
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
+        # Rasmni Telegram limitiga moslashtirish
+        try:
+            img = Image.open(TARIFF_IMAGE)
+            if max(img.size) > 1280:
+                img.thumbnail((1280, 1280), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                buf.seek(0)
+                photo_file = BufferedInputFile(file=buf.read(), filename="tarif.jpg")
+            else:
+                photo_file = FSInputFile(TARIFF_IMAGE)
+        except Exception:
+            photo_file = FSInputFile(TARIFF_IMAGE)
+
+        await bot.send_photo(
+            chat_id=chat_id,
+            photo=photo_file,
+            caption=t(uid, "choose_tariff"),
+            parse_mode=ParseMode.HTML,
+            reply_markup=tariff_kb,
+        )
+    else:
+        try:
+            await cb.message.edit_text(
+                t(uid, "choose_tariff"),
+                parse_mode=ParseMode.HTML,
+                reply_markup=tariff_kb,
+            )
+        except Exception:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=t(uid, "choose_tariff"),
+                parse_mode=ParseMode.HTML,
+                reply_markup=tariff_kb,
+            )
+
+
+# ── 📦 Tariflar ─────────────────────────────────────────────────
+@router.message(F.text.in_(["📦 Tariflar", "📦 Тарифы"]))
+async def btn_tariffs(msg: types.Message):
+    uid = msg.from_user.id
+    tariff_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="1️⃣ Infografika", callback_data="tariff_1")],
+        [InlineKeyboardButton(text="2️⃣ Infografika + Matn", callback_data="tariff_2")],
+        [InlineKeyboardButton(text="3️⃣ Infografika + Reklama rasmlar", callback_data="tariff_3")],
+        [InlineKeyboardButton(text="4️⃣ To'liq paket", callback_data="tariff_4")],
+    ])
+    if TARIFF_IMAGE.exists():
+        try:
+            img = Image.open(TARIFF_IMAGE)
+            if max(img.size) > 1280:
+                img.thumbnail((1280, 1280), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                buf.seek(0)
+                photo_file = BufferedInputFile(file=buf.read(), filename="tarif.jpg")
+            else:
+                photo_file = FSInputFile(TARIFF_IMAGE)
+        except Exception:
+            photo_file = FSInputFile(TARIFF_IMAGE)
+        await msg.answer_photo(photo=photo_file, caption=t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
+    else:
+        await msg.answer(t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
 
 @router.callback_query(F.data.startswith("tariff_"))
 async def cb_tariff(cb: CallbackQuery):
     uid = cb.from_user.id
     if uid not in user_settings: user_settings[uid] = {}
-    user_settings[uid]["tariff"] = int(cb.data.replace("tariff_", ""))
+    tariff_num = int(cb.data.replace("tariff_", ""))
+    user_settings[uid]["tariff"] = tariff_num
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    names = TEXTS[lang]["tariff_names"]
+    tariff_name = names.get(tariff_num, "")
     await cb.answer()
-    await cb.message.edit_text(t(uid, "setup_done"), parse_mode=ParseMode.HTML)
-    await cb.message.answer(t(uid, "send_photo"), parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard(uid))
 
-@router.message(Command("settings"))
-async def cmd_settings(msg: types.Message):
+    # Avvalgi xabarni yangilash
+    try:
+        await cb.message.edit_caption(
+            caption=t(uid, "tariff_set", name=tariff_name),
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception:
+        try:
+            await cb.message.edit_text(
+                t(uid, "tariff_set", name=tariff_name),
+                parse_mode=ParseMode.HTML,
+            )
+        except Exception:
+            await bot.send_message(
+                chat_id=cb.message.chat.id,
+                text=t(uid, "tariff_set", name=tariff_name),
+                parse_mode=ParseMode.HTML,
+            )
+
+    # Joriy tarif ko'rsatilgan xabar + reply keyboard
+    await bot.send_message(
+        chat_id=cb.message.chat.id,
+        text=t(uid, "ready_with_tariff", tariff=tariff_name),
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_reply_keyboard(uid),
+    )
+
+
+# ── 💰 Balans ───────────────────────────────────────────────────
+@router.message(F.text.in_(["💰 Balans", "💰 Баланс"]))
+async def btn_balance(msg: types.Message):
+    uid = msg.from_user.id
+    balance = get_balance(uid)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=t(uid, "balance_topup"), callback_data="topup")],
+    ])
+    await msg.answer(t(uid, "balance", amount=f"{balance:,}"), parse_mode=ParseMode.HTML, reply_markup=kb)
+
+@router.callback_query(F.data == "topup")
+async def cb_topup(cb: CallbackQuery):
+    await cb.answer()
+    await cb.message.answer(t(cb.from_user.id, "balance_topup_soon"), parse_mode=ParseMode.HTML)
+
+
+# ── 📋 Namunalar ────────────────────────────────────────────────
+@router.message(F.text.in_(["📋 Namunalar", "📋 Примеры"]))
+async def btn_samples(msg: types.Message):
+    uid = msg.from_user.id
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    names = TEXTS[lang]["tariff_names"]
+    sample_label = "namuna" if lang == "uz" else "пример"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"1️⃣ {names[1]} — {sample_label}", callback_data="sample_1")],
+        [InlineKeyboardButton(text=f"2️⃣ {names[2]} — {sample_label}", callback_data="sample_2")],
+        [InlineKeyboardButton(text=f"3️⃣ {names[3]} — {sample_label}", callback_data="sample_3")],
+        [InlineKeyboardButton(text=f"4️⃣ {names[4]} — {sample_label}", callback_data="sample_4")],
+    ])
+    await msg.answer(t(uid, "samples"), parse_mode=ParseMode.HTML, reply_markup=kb)
+
+@router.callback_query(F.data.startswith("sample_"))
+async def cb_sample(cb: CallbackQuery):
+    uid = cb.from_user.id
+    tariff_num = int(cb.data.replace("sample_", ""))
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    text_lang = get_text_lang(uid)
+    await cb.answer()
+
+    samples_dir = BASE_DIR / "images" / "samples"
+
+    # Namuna rasmlarni topish (tarif1_1.jpg, tarif1_2.jpg, ...)
+    sample_images = sorted(samples_dir.glob(f"tarif{tariff_num}_*.jpg"))
+
+    if not sample_images:
+        no_sample = "🔜 Bu tarif uchun namunalar hali qo'shilmagan." if lang == "uz" else "🔜 Примеры для этого тарифа ещё не добавлены."
+        await cb.message.answer(no_sample)
+        return
+
+    # Rasmlarni yuborish
+    if len(sample_images) >= 2:
+        media = [
+            InputMediaPhoto(
+                media=FSInputFile(sample_images[0]),
+                caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {TEXTS[lang]['tariff_names'][tariff_num]}",
+                parse_mode=ParseMode.HTML,
+            ),
+        ]
+        for img in sample_images[1:4]:  # max 4 ta rasm
+            media.append(InputMediaPhoto(media=FSInputFile(img)))
+        await cb.message.answer_media_group(media=media)
+    else:
+        await cb.message.answer_photo(
+            photo=FSInputFile(sample_images[0]),
+            caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {TEXTS[lang]['tariff_names'][tariff_num]}",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # Namuna textlar (tarif 2 va 4 uchun) — uz/ru birgalikda
+    from samples import get_sample_text
+    sample = get_sample_text(tariff_num)
+
+    if sample:
+        await send_long(cb.message.chat.id, sample)
+
+
+# ── ⚙️ Sozlamalar ───────────────────────────────────────────────
+@router.message(F.text.in_(["⚙️ Sozlamalar", "⚙️ Настройки"]))
+async def btn_settings(msg: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
     ]])
     await msg.answer("🌐 Tilni tanlang / Выберите язык:", reply_markup=kb)
 
-@router.message(F.text.in_(["⚙️ Sozlamalar", "⚙️ Настройки"]))
-async def btn_settings(msg): await cmd_settings(msg)
+@router.message(Command("settings"))
+async def cmd_settings(msg: types.Message): await btn_settings(msg)
+
+# ── ❓ Yordam ────────────────────────────────────────────────────
 @router.message(F.text.in_(["❓ Yordam", "❓ Помощь"]))
-async def btn_help(msg): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
+async def btn_help(msg: types.Message):
+    await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
+
 @router.message(Command("help"))
-async def cmd_help(msg): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
+async def cmd_help(msg: types.Message): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -764,19 +965,26 @@ async def cmd_help(msg): await msg.answer(t(msg.from_user.id, "help"), parse_mod
 @router.message(F.photo)
 async def handle_photo(message: types.Message):
     uid = message.from_user.id
-    if uid not in user_settings or "tariff" not in user_settings.get(uid, {}):
+
+    # Til tekshiruv
+    if uid not in user_settings or "text_lang" not in user_settings.get(uid, {}):
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
             InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
         ]])
-        await message.answer("⚙️ Avval sozlamalarni tanlang:", reply_markup=kb)
+        await message.answer("⚙️ Avval tilni tanlang:", reply_markup=kb)
+        return
+
+    # Tarif tekshiruv
+    tariff = get_tariff(uid)
+    if tariff == 0:
+        await message.answer(t(uid, "error_no_tariff"), parse_mode=ParseMode.HTML)
         return
 
     if user_tasks.get(uid):
         await message.answer(t(uid, "busy")); return
 
     user_tasks[uid] = True
-    tariff = get_tariff(uid)
     text_lang = get_text_lang(uid)
     user_msg_id = message.message_id
 
@@ -785,7 +993,6 @@ async def handle_photo(message: types.Message):
     progress = asyncio.create_task(update_progress(wait_msg, uid, stop))
 
     try:
-        # Rasmni yuklash
         photo = message.photo[-1]
         file = await bot.get_file(photo.file_id)
         raw = await bot.download_file(file.file_path)
@@ -800,7 +1007,7 @@ async def handle_photo(message: types.Message):
             await wait_msg.edit_text(t(uid, "error_copyright", keyword=cr), parse_mode=ParseMode.HTML)
             return
 
-        # 2. Infografik prompt + generatsiya (tariflar 1-4)
+        # 2. Infografik (tariflar 1-4)
         inf_prompt = write_infographic_prompt(analysis, text_lang)
         infographics = await gen_infographics_parallel(image_bytes, inf_prompt)
 
@@ -817,19 +1024,15 @@ async def handle_photo(message: types.Message):
             ctx = f"Tovar: {card['name_uz']}\nXususiyat: {card['feat_uz']}"
             full_uz, full_ru = gen_card_step2(image_bytes, text_lang, ctx)
 
-        # Progress stop
         stop.set(); await progress
 
-        # ── NATIJALAR ────────────────────────────────────────────
+        # Natijalar
         await send_images(message, infographics, t(uid, "done_infographic"), "infographic")
-
         if promos:
             await send_images(message, promos, t(uid, "done_promo"), "promo")
-
         if card:
             await send_card_texts(message, card, full_uz, full_ru)
 
-        # Original rasm o'chirish
         try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
         except: pass
         await wait_msg.delete()
@@ -850,18 +1053,24 @@ async def handle_photo(message: types.Message):
     finally:
         user_tasks.pop(uid, None)
 
+
 @router.message(F.text & ~F.text.startswith("/"))
-async def handle_text(msg):
-    if msg.text in ["⚙️ Sozlamalar", "⚙️ Настройки", "❓ Yordam", "❓ Помощь"]: return
+async def handle_text(msg: types.Message):
+    btn_texts = ["📦 Tariflar", "📦 Тарифы", "💰 Balans", "💰 Баланс",
+                 "📋 Namunalar", "📋 Примеры", "⚙️ Sozlamalar", "⚙️ Настройки",
+                 "❓ Yordam", "❓ Помощь"]
+    if msg.text in btn_texts: return
     await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
 
 @router.message(F.document)
-async def handle_doc(msg):
+async def handle_doc(msg: types.Message):
     if msg.document.mime_type and msg.document.mime_type.startswith("image/"):
         await msg.answer("📸 Rasmni oddiy rasm sifatida yuboring!")
     else:
         await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
 
+
+# ── Ishga tushirish ──────────────────────────────────────────────
 async def main():
     dp.include_router(router)
     await bot.set_my_commands([
@@ -870,10 +1079,8 @@ async def main():
         BotCommand(command="help", description="Yordam / Помощь"),
     ])
     logger.info("=" * 50)
-    logger.info("🚀 Marketplace Bot v10 — 4 tarif")
-    logger.info("📊 Infografik: 1104x1472 (3:4), gpt-image-2 low")
-    logger.info("📊 Tavsif rasm: 1024x1024, gpt-image-2 low")
-    logger.info("📊 Matn: gpt-4o-mini (2 step)")
+    logger.info("🚀 Marketplace Bot v11")
+    logger.info(f"📁 Tarif rasmi: {TARIFF_IMAGE} ({'✅' if TARIFF_IMAGE.exists() else '❌'})")
     logger.info("=" * 50)
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)

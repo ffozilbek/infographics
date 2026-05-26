@@ -13,12 +13,11 @@ Qo'llanma:
 FORMAT: Oddiy string, Telegram HTML teglar bilan (<b>, <pre>)
 """
 
-# ══════════════════════════════════════════════════════════════════
-# TARIF 2: Infografika + Matn — namuna textlar
-# ══════════════════════════════════════════════════════════════════
-
-TARIF2_SAMPLE = """📌 <b>1. Tovar nomi</b>
-
+# 1-xabar: Tovar nomi + Qisqacha tavsif
+TARIF2_MSG1 = """✅ <b>Kartochka matnlari tayyor!</b>
+ 
+📌 <b>1. Tovar nomi</b>
+ 
 🇺🇿: UZ
 <pre>Chiroyli naqshli keramika chashka, qizil tutqich bilan, o'ziga xos dizayn</pre>
 
@@ -33,12 +32,11 @@ TARIF2_SAMPLE = """📌 <b>1. Tovar nomi</b>
 <pre>Chiroyli naqshli chashka, keramika, qizil tutqich, ichimliklar uchun, uy dekoratsiyasi, maxsus dizayn, qulay tutqich, zamonaviy uslub, ichimliklar, chashka, chashka sotib olish, chashka narxi, chashka dizayni, chashka sotilishi, chashka ishlab chiqarish, chashkalar, chashka to'plami, chashka tanlovi, chashka yangiliklari, chashka sifatlari</pre>
 
 🇷🇺: RU
-<pre>Красочная кружка, керамика, красная ручка, для напитков, домашний декор, уникальный дизайн, удобная ручка, современный стиль, напитки, покупка кружки, цена кружки, дизайн кружки, продажа кружек, производство кружек, набор кружек, выбор кружек, новости кружек, качества кружек</pre>
+<pre>Красочная кружка, керамика, красная ручка, для напитков, домашний декор, уникальный дизайн, удобная ручка, современный стиль, напитки, покупка кружки, цена кружки, дизайн кружки, продажа кружек, производство кружек, набор кружек, выбор кружек, новости кружек, качества кружек</pre>"""
 
-━━━━━━━━━━━━━━━━━━━━
-
-📄 <b>3. Tovar tavsifi</b>
-
+# 2-xabar: To'liq tavsif O'zbekcha
+TARIF2_MSG2 = """📄 <b>3. Tovar tavsifi</b>
+ 
 🇺🇿: UZ
 <pre>Chiroyli naqshli keramika chashka, zamonaviy dizayni bilan har bir uyda o'ziga xos joy egallaydi. Ushbu chashka nafaqat ichimliklaringizni ichish uchun, balki uy dekoratsiyasi sifatida ham foydalanish uchun juda mos keladi. Uning o'ziga xos naqshlari va qizil tutqichi bu chashkani yanada jozibador qiladi. Har bir detali bilan sifatli keramika materialidan tayyorlangan, bu chashka sizga uzoq muddat xizmat qiladi.
 
@@ -52,9 +50,10 @@ Chashka o'ziga xos ko'rinishi bilan har qanday muhitda ajralib turadi. U nafaqat
 
 Qadoqlash jihatidan, chashka ehtiyotkorlik bilan qadoqlangan, bu esa uning transporti davomida shikastlanishining oldini oladi. Siz uni o'zingizga yoki yaqinlaringizga sovg'a sifatida osongina olib kelishingiz mumkin. Uning narxi ham juda qulay, shuning uchun har kim o'ziga bunday chashka sotib olish imkoniyatiga ega.
 
-Xulosa qilib aytganda, ushbu naqshli keramika chashka har qanday ichimliklar uchun mukammal tanlovdir. U nafaqat zamonaviy dizayni va qulayligi bilan, balki sifatli materiali bilan ham ajralib turadi. Har bir detali bilan o'ylangan ushbu chashka, sizning uy dekoratsiyangizga ajoyib qo'shimcha bo'ladi. Uni sotib olish orqali siz nafaqat ichimliklaringizni ichasiz, balki har bir ichimlikda go'zallikni his qilasiz.</pre>
-
-🇷🇺: RU
+Xulosa qilib aytganda, ushbu naqshli keramika chashka har qanday ichimliklar uchun mukammal tanlovdir. U nafaqat zamonaviy dizayni va qulayligi bilan, balki sifatli materiali bilan ham ajralib turadi. Har bir detali bilan o'ylangan ushbu chashka, sizning uy dekoratsiyangizga ajoyib qo'shimcha bo'ladi. Uni sotib olish orqali siz nafaqat ichimliklaringizni ichasiz, balki har bir ichimlikda go'zallikni his qilasiz.</pre>"""
+ 
+# 3-xabar: To'liq tavsif Ruscha
+TARIF2_MSG3 = """🇷🇺: RU
 <pre>Красивый керамический кружка с уникальным дизайном станет неотъемлемой частью любого дома. Эта кружка подходит не только для питья, но и как элемент декора. Ее оригинальные узоры и красная ручка делают кружку еще более привлекательной. Изготовленная из качественного керамического материала, эта кружка обеспечит вам долговечность и надежность.
 
 Объем кружки составляет 300 мл, что делает ее идеальной для различных напитков. Подходит как для кофе, так и для чая, а также для холодных напитков. Красная ручка подчеркивает уникальность дизайна и обеспечивает удобный захват, что делает процесс питья еще более приятным.
@@ -67,11 +66,10 @@ Xulosa qilib aytganda, ushbu naqshli keramika chashka har qanday ichimliklar uch
 
 С точки зрения упаковки, кружка аккуратно упакована, что предотвращает повреждения во время транспортировки. Вы можете легко взять ее с собой или подарить близким. Ее цена также очень доступна, поэтому каждый может позволить себе такую кружку.
 
-В заключение, эта узорная керамическая кружка — отличный выбор для любых напитков. Она выделяется не только своим современным дизайном и удобством, но и качественным материалом. Каждая деталь продумана, и эта кружка станет замечательным дополнением к вашему домашнему декору. Покупая ее, вы не только будете пить напитки, но и наслаждаться красотой в каждом глотке.</pre>
+В заключение, эта узорная керамическая кружка — отличный выбор для любых напитков. Она выделяется не только своим современным дизайном и удобством, но и качественным материалом. Каждая деталь продумана, и эта кружка станет замечательным дополнением к вашему домашнему декору. Покупая ее, вы не только будете пить напитки, но и наслаждаться красотой в каждом глотке.</pre>"""
 
-━━━━━━━━━━━━━━━━━━━━
-
-🏷 <b>4. Tovar xususiyatlari</b>
+# 4-xabar: Xususiyatlar (har biri alohida <pre>)
+TARIF2_MSG4 = """🏷 <b>4. Tovar xususiyatlari</b>
 
 🇺🇿: UZ
 <pre>Turi: chashka</pre>
@@ -93,22 +91,24 @@ Xulosa qilib aytganda, ushbu naqshli keramika chashka har qanday ichimliklar uch
 <pre>Удобство: легкость удержания</pre>
 <pre>Вес: примерно 300 г</pre>"""
 
-
 # ══════════════════════════════════════════════════════════════════
-# TARIF 4: To'liq paket — namuna textlar (tarif 2 bilan bir xil)
+# TARIF 4: To'liq paket (hozircha tarif 2 bilan bir xil)
 # ══════════════════════════════════════════════════════════════════
-
-TARIF4_SAMPLE = TARIF2_SAMPLE
-
-
+ 
+TARIF4_MSG1 = TARIF2_MSG1
+TARIF4_MSG2 = TARIF2_MSG2
+TARIF4_MSG3 = TARIF2_MSG3
+TARIF4_MSG4 = TARIF2_MSG4
+ 
+ 
 # ══════════════════════════════════════════════════════════════════
-# NAMUNALARNI OLISH FUNKSIYASI
+# NAMUNANI OLISH — xabarlar ro'yxati qaytaradi
 # ══════════════════════════════════════════════════════════════════
-
-def get_sample_text(tariff: int) -> str | None:
-    """Tarif raqamiga mos namuna textni qaytaradi (ikkala tilda birgalikda)"""
+ 
+def get_sample_messages(tariff: int) -> list[str] | None:
+    """Tarif raqamiga mos namuna xabarlar ro'yxatini qaytaradi"""
     samples = {
-        2: TARIF2_SAMPLE,
-        4: TARIF4_SAMPLE,
+        2: [TARIF2_MSG1, TARIF2_MSG2, TARIF2_MSG3, TARIF2_MSG4],
+        4: [TARIF4_MSG1, TARIF4_MSG2, TARIF4_MSG3, TARIF4_MSG4],
     }
     return samples.get(tariff)

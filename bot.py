@@ -655,17 +655,45 @@ async def update_progress(wait_msg, uid, stop):
 async def send_long(chat_id, text, parse_mode=ParseMode.HTML):
     MAX = 4000
     if len(text) <= MAX:
-        await bot.send_message(chat_id, text, parse_mode=parse_mode); return
+        try:
+            await bot.send_message(chat_id, text, parse_mode=parse_mode)
+        except Exception as e:
+            logger.warning(f"send_long HTML error: {e}")
+            # HTML teglarni tozalab qayta yuborish
+            clean = re.sub(r'<[^>]+>', '', text)
+            await bot.send_message(chat_id, clean)
+        return
+
     chunks = []
     while text:
-        if len(text) <= MAX: chunks.append(text); break
+        if len(text) <= MAX:
+            chunks.append(text)
+            break
+        # Ajratish joyini topish — teglar ichida bo'lmasligi uchun
         cut = text.rfind('\n\n', 0, MAX)
-        if cut == -1: cut = text.rfind('\n', 0, MAX)
-        if cut == -1: cut = MAX
-        chunks.append(text[:cut]); text = text[cut:].lstrip('\n')
+        if cut == -1:
+            cut = text.rfind('\n', 0, MAX)
+        if cut == -1:
+            cut = MAX
+        chunks.append(text[:cut])
+        text = text[cut:].lstrip('\n')
+
     for chunk in chunks:
-        try: await bot.send_message(chat_id, chunk, parse_mode=parse_mode)
-        except: await bot.send_message(chat_id, chunk)
+        # Ochilgan <pre> teglarni yopish
+        open_pre = chunk.count('<pre>') - chunk.count('</pre>')
+        if open_pre > 0:
+            chunk += '</pre>' * open_pre
+        # Yopilgan <pre> tegi boshida — ochish
+        close_pre = chunk.count('</pre>') - chunk.count('<pre>')
+        if close_pre > 0:
+            chunk = '<pre>' * close_pre + chunk
+
+        try:
+            await bot.send_message(chat_id, chunk, parse_mode=parse_mode)
+        except Exception as e:
+            logger.warning(f"send_long chunk error: {e}")
+            clean = re.sub(r'<[^>]+>', '', chunk)
+            await bot.send_message(chat_id, clean)
 
 async def send_images(message, variants, label, prefix="v"):
     ts = datetime.now().strftime('%Y%m%d_%H%M%S'); uid = message.from_user.id
@@ -929,12 +957,13 @@ async def cb_sample(cb: CallbackQuery):
             parse_mode=ParseMode.HTML,
         )
 
-    # Namuna textlar (tarif 2 va 4 uchun) — uz/ru birgalikda
-    from samples import get_sample_text
-    sample = get_sample_text(tariff_num)
+    # Namuna textlar (tarif 2 va 4 uchun) — real format
+    from samples import get_sample_messages
+    messages = get_sample_messages(tariff_num)
 
-    if sample:
-        await send_long(cb.message.chat.id, sample)
+    if messages:
+        for msg_text in messages:
+            await send_long(cb.message.chat.id, msg_text)
 
 
 # ── ⚙️ Sozlamalar ───────────────────────────────────────────────

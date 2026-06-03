@@ -892,6 +892,9 @@ async def cb_tariff(cb: CallbackQuery):
 
 
 # ── 💰 Balans ───────────────────────────────────────────────────
+# Foydalanuvchi to'ldirish summasi kutilmoqda
+user_topup_state = {}  # {uid: True} — summa kutilmoqda
+
 @router.message(F.text.in_(["💰 Balans", "💰 Баланс"]))
 async def btn_balance(msg: types.Message):
     uid = msg.from_user.id
@@ -899,57 +902,29 @@ async def btn_balance(msg: types.Message):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
 
     if lang == "uz":
-        text = (
-            f"💰 <b>Balansingiz:</b> {balance:,} so'm\n\n"
-            "To'ldirish uchun summani tanlang 👇"
-        )
+        text = f"💰 <b>Balansingiz:</b> {balance:,} so'm"
     else:
-        text = (
-            f"💰 <b>Ваш баланс:</b> {balance:,} сум\n\n"
-            "Выберите сумму для пополнения 👇"
-        )
+        text = f"💰 <b>Ваш баланс:</b> {balance:,} сум"
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="10,000 so'm", callback_data="topup_10000"),
-            InlineKeyboardButton(text="25,000 so'm", callback_data="topup_25000"),
-        ],
-        [
-            InlineKeyboardButton(text="50,000 so'm", callback_data="topup_50000"),
-            InlineKeyboardButton(text="100,000 so'm", callback_data="topup_100000"),
-        ],
+        [InlineKeyboardButton(text="💳 Balansni to'ldirish" if lang == "uz" else "💳 Пополнить баланс", callback_data="topup_start")],
     ])
     await msg.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("topup_"))
-async def cb_topup(cb: CallbackQuery):
+@router.callback_query(F.data == "topup_start")
+async def cb_topup_start(cb: CallbackQuery):
     uid = cb.from_user.id
-    amount = int(cb.data.replace("topup_", ""))
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
-
-    # Click to'lov linki
-    pay_url = payment.generate_payment_link(uid, amount)
+    user_topup_state[uid] = True
+    await cb.answer()
 
     if lang == "uz":
-        text = (
-            f"💳 <b>To'lov:</b> {amount:,} so'm\n\n"
-            "Pastdagi tugmani bosib Click orqali to'lang.\n"
-            "To'lov muvaffaqiyatli bo'lgandan keyin balansingiz avtomatik to'ldiriladi."
-        )
+        text = "💳 To'ldirish summasini yozing (so'mda):\n\n<i>Masalan: 50000</i>"
     else:
-        text = (
-            f"💳 <b>Оплата:</b> {amount:,} сум\n\n"
-            "Нажмите кнопку ниже для оплаты через Click.\n"
-            "После успешной оплаты баланс пополнится автоматически."
-        )
+        text = "💳 Введите сумму пополнения (в сумах):\n\n<i>Например: 50000</i>"
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Click orqali to'lash", url=pay_url)],
-    ])
-
-    await cb.answer()
-    await cb.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+    await cb.message.answer(text, parse_mode=ParseMode.HTML)
 
 
 # ── 📋 Namunalar ────────────────────────────────────────────────
@@ -1136,6 +1111,62 @@ async def handle_text(msg: types.Message):
                  "📋 Namunalar", "📋 Примеры", "⚙️ Sozlamalar", "⚙️ Настройки",
                  "❓ Yordam", "❓ Помощь"]
     if msg.text in btn_texts: return
+
+    uid = msg.from_user.id
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+
+    # To'ldirish summasi kutilmoqda
+    if user_topup_state.get(uid):
+        user_topup_state.pop(uid, None)
+
+        # Raqamni tozalash (bo'sh joy, vergul, nuqta olib tashlash)
+        amount_text = msg.text.strip().replace(" ", "").replace(",", "").replace(".", "")
+
+        if not amount_text.isdigit():
+            if lang == "uz":
+                await msg.answer("❌ Faqat raqam kiriting.\n\n<i>Masalan: 50000</i>", parse_mode=ParseMode.HTML)
+            else:
+                await msg.answer("❌ Введите только число.\n\n<i>Например: 50000</i>", parse_mode=ParseMode.HTML)
+            return
+
+        amount = int(amount_text)
+
+        if amount < 1000:
+            if lang == "uz":
+                await msg.answer("❌ Minimal summa: 1,000 so'm", parse_mode=ParseMode.HTML)
+            else:
+                await msg.answer("❌ Минимальная сумма: 1,000 сум", parse_mode=ParseMode.HTML)
+            return
+
+        if amount > 10_000_000:
+            if lang == "uz":
+                await msg.answer("❌ Maksimal summa: 10,000,000 so'm", parse_mode=ParseMode.HTML)
+            else:
+                await msg.answer("❌ Максимальная сумма: 10,000,000 сум", parse_mode=ParseMode.HTML)
+            return
+
+        # Click to'lov linki
+        pay_url = payment.generate_payment_link(uid, amount)
+
+        if lang == "uz":
+            text = (
+                f"💳 <b>To'lov:</b> {amount:,} so'm\n\n"
+                "Pastdagi tugmani bosib Click orqali to'lang.\n"
+                "To'lov muvaffaqiyatli bo'lgandan keyin balansingiz avtomatik to'ldiriladi."
+            )
+        else:
+            text = (
+                f"💳 <b>Оплата:</b> {amount:,} сум\n\n"
+                "Нажмите кнопку ниже для оплаты через Click.\n"
+                "После успешной оплаты баланс пополнится автоматически."
+            )
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Click orqali to'lash", url=pay_url)],
+        ])
+        await msg.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
     await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
 
 @router.message(F.document)

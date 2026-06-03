@@ -27,6 +27,8 @@ from aiogram.types import (
 from aiogram.enums import ParseMode
 from openai import OpenAI
 from PIL import Image
+from aiohttp import web
+import payment
 
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -170,7 +172,7 @@ def t(uid, key, **kw):
 
 def get_text_lang(uid): return user_settings.get(uid, {}).get("text_lang", "ru")
 def get_tariff(uid): return user_settings.get(uid, {}).get("tariff", 0)
-def get_balance(uid): return user_settings.get(uid, {}).get("balance", 0)
+def get_balance(uid): return payment.get_balance(uid)
 
 def get_progress(uid, step):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
@@ -769,7 +771,7 @@ async def cb_text(cb: CallbackQuery):
     uid = cb.from_user.id
     if uid not in user_settings: user_settings[uid] = {}
     user_settings[uid]["text_lang"] = cb.data.replace("lang_text_", "")
-    if "balance" not in user_settings[uid]: user_settings[uid]["balance"] = 0
+
     await cb.answer()
 
     chat_id = cb.message.chat.id
@@ -894,15 +896,60 @@ async def cb_tariff(cb: CallbackQuery):
 async def btn_balance(msg: types.Message):
     uid = msg.from_user.id
     balance = get_balance(uid)
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=t(uid, "balance_topup"), callback_data="topup")],
-    ])
-    await msg.answer(t(uid, "balance", amount=f"{balance:,}"), parse_mode=ParseMode.HTML, reply_markup=kb)
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
 
-@router.callback_query(F.data == "topup")
+    if lang == "uz":
+        text = (
+            f"💰 <b>Balansingiz:</b> {balance:,} so'm\n\n"
+            "To'ldirish uchun summani tanlang 👇"
+        )
+    else:
+        text = (
+            f"💰 <b>Ваш баланс:</b> {balance:,} сум\n\n"
+            "Выберите сумму для пополнения 👇"
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="10,000 so'm", callback_data="topup_10000"),
+            InlineKeyboardButton(text="25,000 so'm", callback_data="topup_25000"),
+        ],
+        [
+            InlineKeyboardButton(text="50,000 so'm", callback_data="topup_50000"),
+            InlineKeyboardButton(text="100,000 so'm", callback_data="topup_100000"),
+        ],
+    ])
+    await msg.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("topup_"))
 async def cb_topup(cb: CallbackQuery):
+    uid = cb.from_user.id
+    amount = int(cb.data.replace("topup_", ""))
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+
+    # Click to'lov linki
+    pay_url = payment.generate_payment_link(uid, amount)
+
+    if lang == "uz":
+        text = (
+            f"💳 <b>To'lov:</b> {amount:,} so'm\n\n"
+            "Pastdagi tugmani bosib Click orqali to'lang.\n"
+            "To'lov muvaffaqiyatli bo'lgandan keyin balansingiz avtomatik to'ldiriladi."
+        )
+    else:
+        text = (
+            f"💳 <b>Оплата:</b> {amount:,} сум\n\n"
+            "Нажмите кнопку ниже для оплаты через Click.\n"
+            "После успешной оплаты баланс пополнится автоматически."
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Click orqali to'lash", url=pay_url)],
+    ])
+
     await cb.answer()
-    await cb.message.answer(t(cb.from_user.id, "balance_topup_soon"), parse_mode=ParseMode.HTML)
+    await cb.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
 
 
 # ── 📋 Namunalar ────────────────────────────────────────────────
@@ -1100,6 +1147,27 @@ async def handle_doc(msg: types.Message):
 
 
 # ── Ishga tushirish ──────────────────────────────────────────────
+async def notify_payment(user_id: int, amount: int, new_balance: int):
+    """To'lov bo'lganda foydalanuvchiga xabar yuborish"""
+    lang = user_settings.get(user_id, {}).get("ui_lang", "uz")
+    if lang == "uz":
+        text = (
+            f"✅ <b>To'lov qabul qilindi!</b>\n\n"
+            f"💰 To'langan: {amount:,} so'm\n"
+            f"💰 Joriy balans: {new_balance:,} so'm"
+        )
+    else:
+        text = (
+            f"✅ <b>Оплата принята!</b>\n\n"
+            f"💰 Оплачено: {amount:,} сум\n"
+            f"💰 Текущий баланс: {new_balance:,} сум"
+        )
+    try:
+        await bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.error(f"Payment notify error: {e}")
+
+
 async def main():
     dp.include_router(router)
     await bot.set_my_commands([
@@ -1107,12 +1175,32 @@ async def main():
         BotCommand(command="settings", description="Sozlamalar / Настройки"),
         BotCommand(command="help", description="Yordam / Помощь"),
     ])
+
+    # Payment modulga bot ni ulash
+    payment.set_bot(bot, notify_payment)
+
     logger.info("=" * 50)
-    logger.info("🚀 Marketplace Bot v11")
+    logger.info("🚀 Marketplace Bot v12 — Click to'lov bilan")
     logger.info(f"📁 Tarif rasmi: {TARIFF_IMAGE} ({'✅' if TARIFF_IMAGE.exists() else '❌'})")
+    logger.info(f"💳 Click: service={payment.CLICK_SERVICE_ID}")
     logger.info("=" * 50)
+
     await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
+
+    # Web server (Click callback uchun) + Bot polling birga
+    web_app = payment.create_web_app()
+    runner = web.AppRunner(web_app)
+    await runner.setup()
+
+    port = int(os.getenv("PORT", "8080"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    logger.info(f"🌐 Web server: port {port}")
+
+    try:
+        await dp.start_polling(bot)
+    finally:
+        await runner.cleanup()
 
 if __name__ == "__main__":
     asyncio.run(main())

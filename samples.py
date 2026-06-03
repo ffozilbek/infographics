@@ -112,3 +112,4 @@ def get_sample_messages(tariff: int) -> list[str] | None:
         4: [TARIF4_MSG1, TARIF4_MSG2, TARIF4_MSG3, TARIF4_MSG4],
     }
     return samples.get(tariff)
+ 

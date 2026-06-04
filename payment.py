@@ -112,18 +112,31 @@ def set_bot(bot_instance, notify_callback=None):
     _bot_notify_callback = notify_callback
 
 
-def _check_sign(data: dict, action: int) -> str:
+def _check_sign(data: dict) -> str:
     """Click sign tekshiruvi"""
-    sign_string = (
-        f"{data.get('click_trans_id', '')}"
-        f"{data.get('service_id', '')}"
-        f"{CLICK_SECRET_KEY}"
-        f"{data.get('merchant_trans_id', '')}"
-    )
-    if action == 1:  # prepare
-        sign_string += f"{data.get('amount', '')}{action}"
-    else:  # complete
-        sign_string += f"{data.get('merchant_prepare_id', '')}{data.get('amount', '')}{action}"
+    action = data.get('action', '0')
+
+    if str(action) == '0':  # prepare
+        sign_string = (
+            f"{data.get('click_trans_id', '')}"
+            f"{data.get('service_id', '')}"
+            f"{CLICK_SECRET_KEY}"
+            f"{data.get('merchant_trans_id', '')}"
+            f"{data.get('amount', '')}"
+            f"{data.get('action', '')}"
+            f"{data.get('sign_time', '')}"
+        )
+    else:  # complete (action=1)
+        sign_string = (
+            f"{data.get('click_trans_id', '')}"
+            f"{data.get('service_id', '')}"
+            f"{CLICK_SECRET_KEY}"
+            f"{data.get('merchant_trans_id', '')}"
+            f"{data.get('merchant_prepare_id', '')}"
+            f"{data.get('amount', '')}"
+            f"{data.get('action', '')}"
+            f"{data.get('sign_time', '')}"
+        )
 
     return hashlib.md5(sign_string.encode()).hexdigest()
 
@@ -143,10 +156,10 @@ async def handle_prepare(request: web.Request) -> web.Response:
         error = data.get("error", "0")
 
         # Sign tekshiruvi
-        expected_sign = _check_sign(data, 1)
+        expected_sign = _check_sign(data)
 
         if sign_string != expected_sign:
-            logger.warning(f"Click prepare: sign mismatch")
+            logger.warning(f"Click prepare: sign mismatch — received={sign_string}, expected={expected_sign}")
             return web.json_response({
                 "click_trans_id": click_trans_id,
                 "merchant_trans_id": merchant_trans_id,
@@ -203,10 +216,10 @@ async def handle_complete(request: web.Request) -> web.Response:
         error = data.get("error", "0")
 
         # Sign tekshiruvi
-        expected_sign = _check_sign(data, 2)
+        expected_sign = _check_sign(data)
 
         if sign_string != expected_sign:
-            logger.warning(f"Click complete: sign mismatch")
+            logger.warning(f"Click complete: sign mismatch — received={sign_string}, expected={expected_sign}")
             return web.json_response({
                 "click_trans_id": click_trans_id,
                 "merchant_trans_id": merchant_trans_id,

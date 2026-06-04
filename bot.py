@@ -49,7 +49,24 @@ dp = Dispatcher()
 router = Router()
 executor = ThreadPoolExecutor(max_workers=4)
 user_tasks = {}
-user_settings = {}  # {uid: {"ui_lang", "text_lang", "tariff", "balance"}}
+user_settings = {}
+
+# Tarif narxlari (so'mda)
+TARIFF_PRICES = {
+    1: 7_000,    # Infografika
+    2: 12_000,   # Infografika + Matn
+    3: 17_000,   # Infografika + Reklama rasmlar
+    4: 25_000,   # To'liq paket
+}
+
+def get_tariff_keyboard() -> InlineKeyboardMarkup:
+    """Narxlar bilan tarif tanlash tugmalari"""
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"1️⃣ Infografika — {TARIFF_PRICES[1]:,} so'm", callback_data="tariff_1")],
+        [InlineKeyboardButton(text=f"2️⃣ Infografika + Matn — {TARIFF_PRICES[2]:,} so'm", callback_data="tariff_2")],
+        [InlineKeyboardButton(text=f"3️⃣ Infografika + Reklama — {TARIFF_PRICES[3]:,} so'm", callback_data="tariff_3")],
+        [InlineKeyboardButton(text=f"4️⃣ To'liq paket — {TARIFF_PRICES[4]:,} so'm", callback_data="tariff_4")],
+    ])
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -67,7 +84,7 @@ TEXTS = {
         "choose_text_lang": "📝 Infografik va matnlar qaysi tilda bo'lsin?",
         "lang_done": "✅ <b>Til saqlandi!</b>\n\n📸 Endi mahsulot rasmini yuboring yoki pastdagi tugmalardan foydalaning.",
         "choose_tariff": "📦 <b>Tarifni tanlang:</b>",
-        "tariff_set": "✅ <b>Tarif tanlandi: {name}</b>\n\n📸 Endi mahsulot rasmini yuboring!",
+        "tariff_set": "✅ <b>Tarif tanlandi: {name}</b>\n💰 Narxi: <b>{price} so'm</b>",
         "busy": "⏳ Oldingi rasmingiz hali tayyor bo'lmadi. Kuting...",
         "error": "❌ <b>Xatolik yuz berdi</b>",
         "error_billing": "💳 OpenAI hisobida mablag' yetarli emas.",
@@ -87,7 +104,7 @@ TEXTS = {
         "done_promo": "✅ <b>Tavsif rasmlari tayyor!</b>",
         "done_text": "✅ <b>Kartochka matnlari tayyor!</b>",
         "send_photo": "📸 Menga <b>mahsulot rasmini</b> yuboring!",
-        "ready_with_tariff": "✅ <b>Hammasi tayyor!</b>\n\n📦 Joriy tarif: <b>{tariff}</b>\n\n📸 Mahsulot rasmini yuboring — bot ishlaydi!\n\n💡 Tarifni o'zgartirish uchun 📦 Tariflar tugmasini bosing.",
+        "ready_with_tariff": "✅ <b>Hammasi tayyor!</b>\n\n📦 Joriy tarif: <b>{tariff}</b>\n💰 Narxi: <b>{price} so'm</b>\n\n📸 Mahsulot rasmini yuboring!\n\n💡 Tarifni o'zgartirish — 📦 Tariflar tugmasini bosing.",
         "balance": "💰 <b>Balansingiz:</b> {amount} so'm",
         "balance_topup": "💳 Balansni to'ldirish",
         "balance_topup_soon": "🔜 To'lov tizimi tez orada qo'shiladi!",
@@ -121,7 +138,7 @@ TEXTS = {
         "choose_text_lang": "📝 На каком языке инфографика и тексты?",
         "lang_done": "✅ <b>Язык сохранён!</b>\n\n📸 Отправьте фото товара или используйте кнопки внизу.",
         "choose_tariff": "📦 <b>Выберите тариф:</b>",
-        "tariff_set": "✅ <b>Тариф выбран: {name}</b>\n\n📸 Отправьте фото товара!",
+        "tariff_set": "✅ <b>Тариф выбран: {name}</b>\n💰 Стоимость: <b>{price} сум</b>",
         "busy": "⏳ Предыдущее фото обрабатывается...",
         "error": "❌ <b>Произошла ошибка</b>",
         "error_billing": "💳 Недостаточно средств на счёте OpenAI.",
@@ -141,7 +158,7 @@ TEXTS = {
         "done_promo": "✅ <b>Рекламные фото готовы!</b>",
         "done_text": "✅ <b>Тексты для карточки готовы!</b>",
         "send_photo": "📸 Отправьте <b>фото товара</b>!",
-        "ready_with_tariff": "✅ <b>Всё готово!</b>\n\n📦 Текущий тариф: <b>{tariff}</b>\n\n📸 Отправьте фото товара — бот начнёт работу!\n\n💡 Сменить тариф — кнопка 📦 Тарифы внизу.",
+        "ready_with_tariff": "✅ <b>Всё готово!</b>\n\n📦 Текущий тариф: <b>{tariff}</b>\n💰 Стоимость: <b>{price} сум</b>\n\n📸 Отправьте фото товара!\n\n💡 Сменить тариф — кнопка 📦 Тарифы.",
         "balance": "💰 <b>Ваш баланс:</b> {amount} сум",
         "balance_topup": "💳 Пополнить баланс",
         "balance_topup_soon": "🔜 Система оплаты будет добавлена скоро!",
@@ -181,7 +198,8 @@ def get_progress(uid, step):
     tariff = get_tariff(uid)
     names = TEXTS.get(lang, TEXTS["uz"])["tariff_names"]
     tariff_name = names.get(tariff, "")
-    return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name}\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
+    price = TARIFF_PRICES.get(tariff, 0)
+    return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name} ({price:,} so'm)\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
 
 def get_reply_keyboard(uid):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
@@ -775,12 +793,7 @@ async def cb_text(cb: CallbackQuery):
     await cb.answer()
 
     chat_id = cb.message.chat.id
-    tariff_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1️⃣ Infografika", callback_data="tariff_1")],
-        [InlineKeyboardButton(text="2️⃣ Infografika + Matn", callback_data="tariff_2")],
-        [InlineKeyboardButton(text="3️⃣ Infografika + Reklama rasmlar", callback_data="tariff_3")],
-        [InlineKeyboardButton(text="4️⃣ To'liq paket", callback_data="tariff_4")],
-    ])
+    tariff_kb = get_tariff_keyboard()
 
     # Til tanlagandan keyin darhol tarif tanlash
     if TARIFF_IMAGE.exists():
@@ -829,12 +842,7 @@ async def cb_text(cb: CallbackQuery):
 @router.message(F.text.in_(["📦 Tariflar", "📦 Тарифы"]))
 async def btn_tariffs(msg: types.Message):
     uid = msg.from_user.id
-    tariff_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1️⃣ Infografika", callback_data="tariff_1")],
-        [InlineKeyboardButton(text="2️⃣ Infografika + Matn", callback_data="tariff_2")],
-        [InlineKeyboardButton(text="3️⃣ Infografika + Reklama rasmlar", callback_data="tariff_3")],
-        [InlineKeyboardButton(text="4️⃣ To'liq paket", callback_data="tariff_4")],
-    ])
+    tariff_kb = get_tariff_keyboard()
     if TARIFF_IMAGE.exists():
         try:
             img = Image.open(TARIFF_IMAGE)
@@ -861,31 +869,32 @@ async def cb_tariff(cb: CallbackQuery):
     lang = user_settings.get(uid, {}).get("ui_lang", "uz")
     names = TEXTS[lang]["tariff_names"]
     tariff_name = names.get(tariff_num, "")
+    tariff_price = f"{TARIFF_PRICES.get(tariff_num, 0):,}"
     await cb.answer()
 
     # Avvalgi xabarni yangilash
     try:
         await cb.message.edit_caption(
-            caption=t(uid, "tariff_set", name=tariff_name),
+            caption=t(uid, "tariff_set", name=tariff_name, price=tariff_price),
             parse_mode=ParseMode.HTML,
         )
     except Exception:
         try:
             await cb.message.edit_text(
-                t(uid, "tariff_set", name=tariff_name),
+                t(uid, "tariff_set", name=tariff_name, price=tariff_price),
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
             await bot.send_message(
                 chat_id=cb.message.chat.id,
-                text=t(uid, "tariff_set", name=tariff_name),
+                text=t(uid, "tariff_set", name=tariff_name, price=tariff_price),
                 parse_mode=ParseMode.HTML,
             )
 
     # Joriy tarif ko'rsatilgan xabar + reply keyboard
     await bot.send_message(
         chat_id=cb.message.chat.id,
-        text=t(uid, "ready_with_tariff", tariff=tariff_name),
+        text=t(uid, "ready_with_tariff", tariff=tariff_name, price=tariff_price),
         parse_mode=ParseMode.HTML,
         reply_markup=get_reply_keyboard(uid),
     )
@@ -1032,6 +1041,35 @@ async def handle_photo(message: types.Message):
         await message.answer(t(uid, "error_no_tariff"), parse_mode=ParseMode.HTML)
         return
 
+    # Balans tekshiruv
+    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    price = TARIFF_PRICES.get(tariff, 0)
+    balance = get_balance(uid)
+    if balance < price:
+        if lang == "uz":
+            text = (
+                f"❌ <b>Balans yetarli emas!</b>\n\n"
+                f"📦 Tarif: <b>{TEXTS['uz']['tariff_names'][tariff]}</b>\n"
+                f"💰 Narxi: <b>{price:,} so'm</b>\n"
+                f"💰 Balansingiz: <b>{balance:,} so'm</b>\n"
+                f"💰 Yetishmaydi: <b>{price - balance:,} so'm</b>\n\n"
+                "Balansni to'ldiring 👇"
+            )
+        else:
+            text = (
+                f"❌ <b>Недостаточно средств!</b>\n\n"
+                f"📦 Тариф: <b>{TEXTS['ru']['tariff_names'][tariff]}</b>\n"
+                f"💰 Стоимость: <b>{price:,} сум</b>\n"
+                f"💰 Ваш баланс: <b>{balance:,} сум</b>\n"
+                f"💰 Не хватает: <b>{price - balance:,} сум</b>\n\n"
+                "Пополните баланс 👇"
+            )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Balansni to'ldirish" if lang == "uz" else "💳 Пополнить баланс", callback_data="topup_start")],
+        ])
+        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        return
+
     if user_tasks.get(uid):
         await message.answer(t(uid, "busy")); return
 
@@ -1077,6 +1115,11 @@ async def handle_photo(message: types.Message):
 
         stop.set(); await progress
 
+        # Balansdan yechish
+        payment.deduct_balance(uid, price)
+        new_balance = get_balance(uid)
+        logger.info(f"Balans yechildi: user={uid}, -{price}, qoldi={new_balance}")
+
         # Natijalar
         await send_images(message, infographics, t(uid, "done_infographic"), "infographic")
         if promos:
@@ -1088,8 +1131,22 @@ async def handle_photo(message: types.Message):
         except: pass
         await wait_msg.delete()
 
-        fin = "🔄 Yana rasm yuboring!" if user_settings.get(uid, {}).get("ui_lang") == "uz" else "🔄 Отправьте ещё фото!"
-        await message.answer(fin)
+        # Yakuniy xabar — balans ko'rsatiladi
+        if lang == "uz":
+            fin = (
+                f"✅ <b>Tayyor!</b>\n\n"
+                f"💰 Yechildi: {price:,} so'm\n"
+                f"💰 Qolgan balans: {new_balance:,} so'm\n\n"
+                "🔄 Yana rasm yuboring!"
+            )
+        else:
+            fin = (
+                f"✅ <b>Готово!</b>\n\n"
+                f"💰 Списано: {price:,} сум\n"
+                f"💰 Остаток: {new_balance:,} сум\n\n"
+                "🔄 Отправьте ещё фото!"
+            )
+        await message.answer(fin, parse_mode=ParseMode.HTML)
 
     except Exception as e:
         stop.set(); await progress

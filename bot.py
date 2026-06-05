@@ -53,6 +53,7 @@ user_tasks = {}
 
 # ── Sozlamalar cache (DB ga har safar murojaat qilmaslik uchun) ──
 _settings_cache: dict[int, dict] = {}
+_tariffs_cache: list = []  # DB dan yuklangan tariflar
 
 async def get_settings(uid: int) -> dict:
     if uid not in _settings_cache:
@@ -66,22 +67,41 @@ async def set_setting(uid: int, field: str, value):
     else:
         _settings_cache[uid] = await db.get_user_settings(uid)
 
-# Tarif narxlari (so'mda)
-TARIFF_PRICES = {
-    1: 7_000,    # Infografika
-    2: 12_000,   # Infografika + Matn
-    3: 17_000,   # Infografika + Reklama rasmlar
-    4: 25_000,   # To'liq paket
-}
+async def load_tariffs():
+    """DB dan tariflarni yuklash"""
+    global _tariffs_cache
+    _tariffs_cache = await db.get_all_tariffs()
+    logger.info(f"Tariflar yuklandi: {len(_tariffs_cache)} ta")
 
-def get_tariff_keyboard() -> InlineKeyboardMarkup:
-    """Narxlar bilan tarif tanlash tugmalari"""
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"1️⃣ Infografika — {TARIFF_PRICES[1]:,} so'm", callback_data="tariff_1")],
-        [InlineKeyboardButton(text=f"2️⃣ Infografika + Matn — {TARIFF_PRICES[2]:,} so'm", callback_data="tariff_2")],
-        [InlineKeyboardButton(text=f"3️⃣ Infografika + Reklama — {TARIFF_PRICES[3]:,} so'm", callback_data="tariff_3")],
-        [InlineKeyboardButton(text=f"4️⃣ To'liq paket — {TARIFF_PRICES[4]:,} so'm", callback_data="tariff_4")],
-    ])
+def get_tariff_price(tariff_id: int) -> int:
+    for t in _tariffs_cache:
+        if t["tariff_id"] == tariff_id:
+            return t["price"]
+    return {1: 7000, 2: 12000, 3: 17000, 4: 25000}.get(tariff_id, 0)
+
+def get_tariff_name(tariff_id: int, lang: str = "uz") -> str:
+    for t in _tariffs_cache:
+        if t["tariff_id"] == tariff_id:
+            return t[f"name_{lang}"]
+    return {1: "Infografika", 2: "Infografika + Matn",
+            3: "Infografika + Reklama", 4: "To'liq paket"}.get(tariff_id, "")
+
+def get_active_tariffs() -> list:
+    return [t for t in _tariffs_cache if t.get("is_active", True)]
+
+async def get_tariff_keyboard() -> InlineKeyboardMarkup:
+    """DB dan tarif nomlar va narxlar bilan keyboard"""
+    tariffs = get_active_tariffs()
+    emojis = {1: "1️⃣", 2: "2️⃣", 3: "3️⃣", 4: "4️⃣"}
+    buttons = []
+    for t in tariffs:
+        tid = t["tariff_id"]
+        emoji = emojis.get(tid, "🔹")
+        buttons.append([InlineKeyboardButton(
+            text=f"{emoji} {t['name_uz']} — {t['price']:,} so'm",
+            callback_data=f"tariff_{tid}"
+        )])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -213,9 +233,8 @@ def get_progress(settings: dict, step):
     stages = TEXTS.get(lang, TEXTS["uz"])["progress"]
     s = stages[min(step, len(stages)-1)]
     tariff = settings.get("tariff", 0)
-    names = TEXTS.get(lang, TEXTS["uz"])["tariff_names"]
-    tariff_name = names.get(tariff, "")
-    price = TARIFF_PRICES.get(tariff, 0)
+    tariff_name = get_tariff_name(tariff, lang)
+    price = get_tariff_price(tariff)
     return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name} ({price:,} so'm)\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
 
 def get_reply_keyboard(settings: dict):
@@ -814,7 +833,7 @@ async def cb_text(cb: CallbackQuery):
 
     settings = await get_settings(uid)
     chat_id = cb.message.chat.id
-    tariff_kb = get_tariff_keyboard()
+    tariff_kb = await get_tariff_keyboard()
 
     # Til tanlagandan keyin darhol tarif tanlash
     if TARIFF_IMAGE.exists():
@@ -863,7 +882,7 @@ async def cb_text(cb: CallbackQuery):
 @router.message(F.text.in_(["📦 Tariflar", "📦 Тарифы"]))
 async def btn_tariffs(msg: types.Message):
     uid = msg.from_user.id
-    tariff_kb = get_tariff_keyboard()
+    tariff_kb = await get_tariff_keyboard()
     if TARIFF_IMAGE.exists():
         try:
             img = Image.open(TARIFF_IMAGE)
@@ -888,9 +907,8 @@ async def cb_tariff(cb: CallbackQuery):
     await set_setting(uid, "tariff", tariff_num)
     settings = await get_settings(uid)
     lang = settings.get("ui_lang", "uz")
-    names = TEXTS[lang]["tariff_names"]
-    tariff_name = names.get(tariff_num, "")
-    tariff_price = f"{TARIFF_PRICES.get(tariff_num, 0):,}"
+    tariff_name = get_tariff_name(tariff_num, lang)
+    tariff_price = f"{get_tariff_price(tariff_num):,}"
     await cb.answer()
 
     try:
@@ -963,13 +981,12 @@ async def btn_samples(msg: types.Message):
     uid = msg.from_user.id
     settings = await get_settings(uid)
     lang = settings.get("ui_lang", "uz")
-    names = TEXTS[lang]["tariff_names"]
     sample_label = "namuna" if lang == "uz" else "пример"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"1️⃣ {names[1]} — {sample_label}", callback_data="sample_1")],
-        [InlineKeyboardButton(text=f"2️⃣ {names[2]} — {sample_label}", callback_data="sample_2")],
-        [InlineKeyboardButton(text=f"3️⃣ {names[3]} — {sample_label}", callback_data="sample_3")],
-        [InlineKeyboardButton(text=f"4️⃣ {names[4]} — {sample_label}", callback_data="sample_4")],
+        [InlineKeyboardButton(text=f"1️⃣ {get_tariff_name(1, lang)} — {sample_label}", callback_data="sample_1")],
+        [InlineKeyboardButton(text=f"2️⃣ {get_tariff_name(2, lang)} — {sample_label}", callback_data="sample_2")],
+        [InlineKeyboardButton(text=f"3️⃣ {get_tariff_name(3, lang)} — {sample_label}", callback_data="sample_3")],
+        [InlineKeyboardButton(text=f"4️⃣ {get_tariff_name(4, lang)} — {sample_label}", callback_data="sample_4")],
     ])
     await msg.answer(t(settings, "samples"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
@@ -993,7 +1010,7 @@ async def cb_sample(cb: CallbackQuery):
         media = [
             InputMediaPhoto(
                 media=FSInputFile(sample_images[0]),
-                caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {TEXTS[lang]['tariff_names'][tariff_num]}",
+                caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {get_tariff_name(tariff_num, lang)}",
                 parse_mode=ParseMode.HTML,
             ),
         ]
@@ -1003,7 +1020,7 @@ async def cb_sample(cb: CallbackQuery):
     else:
         await cb.message.answer_photo(
             photo=FSInputFile(sample_images[0]),
-            caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {TEXTS[lang]['tariff_names'][tariff_num]}",
+            caption=f"📋 {'Namuna' if lang == 'uz' else 'Пример'} — {get_tariff_name(tariff_num, lang)}",
             parse_mode=ParseMode.HTML,
         )
 
@@ -1064,13 +1081,13 @@ async def handle_photo(message: types.Message):
 
     # Balans tekshiruv
     lang = settings.get("ui_lang", "uz")
-    price = TARIFF_PRICES.get(tariff, 0)
+    price = get_tariff_price(tariff)
     balance = await db.get_balance(uid)
     if balance < price:
         if lang == "uz":
             text = (
                 f"❌ <b>Balans yetarli emas!</b>\n\n"
-                f"📦 Tarif: <b>{TEXTS['uz']['tariff_names'][tariff]}</b>\n"
+                f"📦 Tarif: <b>{get_tariff_name(tariff, 'uz')}</b>\n"
                 f"💰 Narxi: <b>{price:,} so'm</b>\n"
                 f"💰 Balansingiz: <b>{balance:,} so'm</b>\n"
                 f"💰 Yetishmaydi: <b>{price - balance:,} so'm</b>\n\n"
@@ -1079,7 +1096,7 @@ async def handle_photo(message: types.Message):
         else:
             text = (
                 f"❌ <b>Недостаточно средств!</b>\n\n"
-                f"📦 Тариф: <b>{TEXTS['ru']['tariff_names'][tariff]}</b>\n"
+                f"📦 Тариф: <b>{get_tariff_name(tariff, 'ru')}</b>\n"
                 f"💰 Стоимость: <b>{price:,} сум</b>\n"
                 f"💰 Ваш баланс: <b>{balance:,} сум</b>\n"
                 f"💰 Не хватает: <b>{price - balance:,} сум</b>\n\n"
@@ -1283,6 +1300,8 @@ async def notify_payment(user_id: int, amount: int, new_balance: int):
 async def main():
     # DB jadvallarni yaratish
     await db.init_db()
+    # Tariflarni DB dan yuklash
+    await load_tariffs()
 
     dp.include_router(router)
     await bot.set_my_commands([

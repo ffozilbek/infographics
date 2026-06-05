@@ -196,14 +196,134 @@ async def handle_complete(request: web.Request) -> web.Response:
 
 # ── Web server ───────────────────────────────────────────────────
 
+# ── Admin panel ──────────────────────────────────────────────────
+
+import json
+import secrets
+import database as db
+from pathlib import Path
+
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123")
+ADMIN_TOKEN = secrets.token_hex(32)  # Runtime da yangilanadi
+_admin_tokens: set = set()
+
+
+def _auth(request) -> bool:
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        return auth[7:] in _admin_tokens
+    return False
+
+
+async def admin_login(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        if data.get("password") == ADMIN_PASSWORD:
+            tok = secrets.token_hex(32)
+            _admin_tokens.add(tok)
+            return web.json_response({"token": tok})
+        return web.json_response({"error": "Wrong password"}, status=401)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=400)
+
+
+async def admin_stats(request: web.Request) -> web.Response:
+    if not _auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        stats = await db.get_stats()
+        # datetime serialization
+        for r in stats.get("daily_revenue", []):
+            if hasattr(r.get("day"), "isoformat"):
+                r["day"] = r["day"].isoformat()
+        for r in stats.get("recent_txns", []):
+            if hasattr(r.get("created_at"), "isoformat"):
+                r["created_at"] = r["created_at"].isoformat()
+        return web.json_response(stats)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def admin_get_tariffs(request: web.Request) -> web.Response:
+    if not _auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        tariffs = await db.get_all_tariffs()
+        for t in tariffs:
+            if hasattr(t.get("updated_at"), "isoformat"):
+                t["updated_at"] = t["updated_at"].isoformat()
+        return web.json_response(tariffs)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def admin_update_tariff(request: web.Request) -> web.Response:
+    if not _auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        tariff_id = int(request.match_info["id"])
+        data = await request.json()
+        await db.update_tariff(
+            tariff_id,
+            data["name_uz"], data["name_ru"],
+            int(data["price"]), bool(data.get("is_active", True))
+        )
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def admin_get_users(request: web.Request) -> web.Response:
+    if not _auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        users = await db.get_all_users(limit=100)
+        for u in users:
+            if hasattr(u.get("created_at"), "isoformat"):
+                u["created_at"] = u["created_at"].isoformat()
+            if hasattr(u.get("updated_at"), "isoformat"):
+                u["updated_at"] = u["updated_at"].isoformat()
+        return web.json_response(users)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def admin_set_user_balance(request: web.Request) -> web.Response:
+    if not _auth(request):
+        return web.json_response({"error": "Unauthorized"}, status=401)
+    try:
+        user_id = int(request.match_info["uid"])
+        data = await request.json()
+        amount = int(data["amount"])
+        await db.admin_set_balance(user_id, amount, "admin_panel")
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500)
+
+
+async def admin_html(request: web.Request) -> web.Response:
+    html_path = Path(__file__).parent / "admin.html"
+    if html_path.exists():
+        return web.Response(text=html_path.read_text(encoding="utf-8"), content_type="text/html")
+    return web.Response(text="admin.html not found", status=404)
+
+
 def create_web_app() -> web.Application:
     app = web.Application()
+    # Click callbacks
     app.router.add_post("/click/prepare", handle_prepare)
     app.router.add_post("/click/complete", handle_complete)
-
+    # Admin panel
+    app.router.add_get("/admin", admin_html)
+    app.router.add_post("/admin/login", admin_login)
+    app.router.add_get("/admin/stats", admin_stats)
+    app.router.add_get("/admin/tariffs", admin_get_tariffs)
+    app.router.add_put("/admin/tariffs/{id}", admin_update_tariff)
+    app.router.add_get("/admin/users", admin_get_users)
+    app.router.add_put("/admin/users/{uid}/balance", admin_set_user_balance)
+    # Health
     async def health(request):
         return web.json_response({"status": "ok"})
     app.router.add_get("/", health)
     app.router.add_get("/health", health)
-
     return app

@@ -256,7 +256,7 @@ Return ONLY structured output in this format:
 
 1. Product Info:
 - Product type:
-- Brand (if visible):
+- Brand: not applicable
 - Category:
 
 2. Visual Style:
@@ -285,19 +285,17 @@ Return ONLY structured output in this format:
 
 6. Design Elements:
 - Icons (type and style):
-- Decorative elements:
+- Decorative elements (water drops, glow, particles, etc.):
 
 7. Key Selling Points:
 - Main marketing message:
-- Target audience:
+- Target audience (if inferable):
 
 IMPORTANT:
-- Do NOT hallucinate brand details if not visible
-- If brand IS visible on the product, write it EXACTLY as shown — do NOT translate
-- If product has any printed text (labels, embroidery, engravings), write it EXACTLY as shown — NEVER translate
-- Focus on product type, real features, colors, materials
-- Keep descriptions short and precise
-- Focus on visual and structural analysis only"""
+- NEVER include any brand names — always write "Brand: not applicable"
+- If product has text/labels printed on it, write them EXACTLY as shown in original language — do NOT translate
+- Focus only on product type, features, colors, materials
+- Keep descriptions short and precise"""
 
 def analyze_product(image_bytes):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -336,10 +334,10 @@ def check_copyright(text):
 def get_infographic_prompt_system(text_lang):
     if text_lang == "uz":
         lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
-        banned = 'BANNED: "aksiya", "bepul", "buyurtma berish", "sotib olish", "keshbek", "chegirma", "trend", "top", "xit", "yangilik", "eng yaxshi", "1-raqamli", "arzon", "foydali narx".'
+        banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
     else:
         lang_instruction = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
-        banned = 'BANNED: "акция", "бесплатно", "заказать", "купить", "кешбэк", "новинка", "оригинал", "распродажа", "sale", "скидка", "тренд", "топ", "хит", "лучший", "№1", "лидер продаж", "дёшево", "выгодная цена".'
+        banned = 'BANNED: "акция", "бесплатно", "скидка", "топ", "хит", "новинка", "лучший", "дёшево".'
 
     return f"""You are an expert marketplace infographic prompt engineer.
 
@@ -356,12 +354,14 @@ Create a high-end product infographic advertisement based on the following analy
 [INSERT THE FULL ANALYSIS HERE]
 
 Requirements:
-- Clean, modern, minimalistic advertising design
-- Perfect, readable typography (NO distorted or broken text)
-- Correct grammar and professional wording
+- Keep the same composition and layout style
+- Maintain similar visual hierarchy (headline, features, product placement)
+- Use a clean, modern, minimalistic advertising design
+- Ensure perfect, readable typography (NO distorted or broken text)
+- Use correct grammar and professional wording
 
 Design details:
-- Background: improved style (more realistic, more depth)
+- Background: recreate similar style but improved (more realistic, more depth)
 - Lighting: soft studio lighting with realistic reflections
 - Product: ultra-realistic, sharp, slightly tilted for depth
 - Colors: consistent palette, premium look
@@ -370,31 +370,26 @@ Text:
 {lang_instruction}
 - Put every text element in "quotes" for accurate rendering
 - Keep SHORT: 2-4 words titles, 5-8 words descriptions
-- NO CapsLock except for product's own printed text
+- NO CapsLock
 - NO emoji in image text
 
-Features (CRITICAL — must be REAL and MEANINGFUL):
+Features:
 - Show 3-4 feature points with minimal icons on the LEFT side
-- Each feature: simple icon + bold title + short description below
-- Features must describe ACTUAL product properties (material, size, function, durability)
-- DO NOT invent obvious or meaningless features like "fits on head", "has color", "is a product"
+- Each feature: icon + bold title + short description below
 - Features arranged VERTICALLY (list style), not horizontally
 - NO bottom 3 blocks/cards — use feature list instead
 
-Badge (top-right area):
-- ONLY add a badge if there is a meaningful spec to show (e.g., size, weight, capacity, quantity)
-- DO NOT add badges like "fits well", "comfortable", "good quality" — these are meaningless
-- If no meaningful spec exists, leave this area empty
-
 Layout (3:4 portrait):
 - Product as hero image (center/right, ~50-60% of image)
-- Headline top-left, large bold text — use product TYPE as headline, NOT brand name
+- Headline top-left, large bold text
 - Subheadline below headline, smaller
 - Features list on the left side, vertically arranged
+- Badge (if applicable) on the right side
 - Clean bottom section with closing tagline
 
 Extras:
-- Subtle realistic elements depending on product
+- Add subtle realistic elements depending on product
+- Maintain balanced spacing and alignment
 - Marketplace compliant (Uzum, Wildberries style)
 
 Quality:
@@ -406,18 +401,17 @@ Quality:
 {banned}
 - NO comparative/superlative claims
 - NO excessive punctuation
-- NEVER put any brand name or logo text on the image — this will get product BLOCKED on marketplace
-- Do NOT add brand names that are NOT in the analysis
-- Brand names in ORIGINAL form — NEVER translate
-- Use product type + key feature as headline instead of brand
+- NEVER put any brand name or logo text on the image
+- Instead of brand name, use product type or feature as headline
 
 CRITICAL RULES:
 1. ALL text spelled PERFECTLY
 2. Put all text in "quotes"
-3. NEVER add brand names not mentioned in analysis
+3. ABSOLUTELY NO BRAND NAMES anywhere on the image
 4. NEVER use banned words
-5. Features must be REAL product properties — not obvious statements
-6. Printed text on product (labels, embroidery, engravings) — keep EXACTLY as is or omit — NEVER translate
+5. Use product type + key feature as headline
+6. NEVER translate text that is printed/written on the product — if product has "Coffee Time" written on it, do NOT write "Kofe vaqti" or any translation. Either keep it exactly or don't include it.
+7. Any text visible on the product (labels, prints, engravings) must be kept in original language or omitted entirely — NEVER translated
 """
 
 def write_infographic_prompt(analysis, text_lang):
@@ -474,9 +468,9 @@ Write EXACTLY 2 prompts, separated by the line: ---PROMPT2---
 ⚠️ THE 2 PROMPTS MUST BE COMPLETELY DIFFERENT:
 - Different feature/benefit highlighted
 - Different scene/background/setting
-- Different color scheme and mood
 - Different layout and composition
 - Different text and headlines
+- BUT the product itself must look EXACTLY THE SAME in both — same colors, same shape, same design
 
 PROMPT 1 should focus on the product's PRIMARY FEATURE (e.g., material quality, main function, key technology).
 Show the product in USE or being DEMONSTRATED. Include:
@@ -490,26 +484,27 @@ Show the product in USE or being DEMONSTRATED. Include:
 PROMPT 2 should focus on a COMPLETELY DIFFERENT FEATURE (e.g., convenience, durability, design, versatility).
 Show the product in a DIFFERENT context/setting. Include:
 - Different bold headline in {lang_name} (in "quotes") — NOT similar to Prompt 1
-- Different angle, different background, different mood
-- Different color palette
+- Different angle, different background
 - Different feature callouts
 - Different icons and visual elements
+- BUT product colors and appearance must remain IDENTICAL to the original
 
-Features in both prompts (CRITICAL):
-- Feature callouts must describe REAL product properties
-- DO NOT write obvious statements like "fits the body", "has color", "wearable"
-- Write ACTUAL specs: material, stitching quality, breathability, dimensions, etc.
+⚠️ CRITICAL PRODUCT RULES FOR BOTH PROMPTS:
+- Product must look EXACTLY like the reference image
+- NEVER change product colors — if product is blue, it stays blue in both images
+- NEVER add patterns, decorations, or modifications to the product
+- NEVER make the product more colorful or vibrant than the original
+- Keep the product realistic and true to the reference
 
 Both prompts:
-- Keep the EXACT same product from reference image, DO NOT modify product appearance
-- NEVER change product colors or add decorations not in the original
-- ABSOLUTELY NO brand names or logos on the image — brand names cause product BLOCKING
-- Do NOT add brand names not in the analysis
-- If product has text printed on it, keep it exactly as is — NEVER translate it
+- Keep the EXACT same product from reference image, DO NOT modify
+- ABSOLUTELY NO brand names or logos on the image
+- Use product type and features instead of brand name
+- If product has text printed on it (like "Coffee Time"), keep it exactly as is — NEVER translate it
 - Square 1:1 format
 - Ultra realistic, commercial advertising quality
 - All text in {lang_name}, in "quotes", short and impactful
-- NO banned words (акция, скидка, лучший, топ, хит, бесплатно, aksiya, chegirma, eng yaxshi)"""},
+- NO banned words (акция, скидка, лучший, топ, хит, бесплатно)"""},
             {"role": "user", "content": f"Write 2 COMPLETELY DIFFERENT promo image prompts for:\n\n{analysis}"},
         ],
         max_tokens=2000, temperature=0.8,

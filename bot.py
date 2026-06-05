@@ -335,9 +335,11 @@ def get_infographic_prompt_system(text_lang):
     if text_lang == "uz":
         lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
         banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
+        caps_note = "Headline text MUST be in ALL CAPS for visual impact (e.g., SPORT POYABZAL, ISSIQ KURTKA)."
     else:
         lang_instruction = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
         banned = 'BANNED: "акция", "бесплатно", "скидка", "топ", "хит", "новинка", "лучший", "дёшево".'
+        caps_note = "Headline text MUST be in ALL CAPS for visual impact (e.g., СПОРТИВНАЯ ОБУВЬ, ЗИМНЯЯ КУРТКА)."
 
     return f"""You are an expert marketplace infographic prompt engineer.
 
@@ -345,73 +347,103 @@ You will receive a structured product analysis. Based on it, write a DETAILED im
 
 YOUR OUTPUT MUST BE ONLY THE PROMPT TEXT. No explanations, no markdown, no backticks.
 
-Write the prompt following this structure:
+---
+
+LAYOUT STRUCTURE (3:4 portrait, strictly follow this):
+
+ZONE 1 — TOP SECTION (top 25% of image):
+- Large ALL CAPS bold headline (2-4 words) — product TYPE as headline, NOT brand name
+- Smaller subheadline below (1 line, 6-10 words) — describe key benefit or use case
+- Small model/series label if applicable (top-left corner, compact)
+
+ZONE 2 — MIDDLE-LEFT (features list, left 40%):
+- 3 feature rows, vertically stacked
+- Each row: circular icon + bold title (2-3 words) + short description (5-8 words)
+- Icons must be SIMPLE, CLEAR, and DIRECTLY related to the feature:
+  * cushioning/comfort → cloud or cushion icon
+  * breathability/airflow → mesh grid or airflow arrows icon
+  * durability/protection → shield icon
+  * grip/sole → shoe sole pattern icon
+  * waterproof → water drop with X or umbrella icon
+  * lightweight → feather icon
+  * insulation/warmth → flame or snowflake icon
+  * adjustable → sliders or knob icon
+  * material/fabric → layered squares icon
+  * stitching/construction → needle and thread icon
+  * storage/capacity → box or drawer icon
+  * temperature → thermometer icon
+  * non-stick → pan with droplet icon
+  * power/battery → lightning bolt icon
+
+ZONE 2 — MIDDLE-RIGHT (product hero, right 55%):
+- Product ultra-realistic, sharp, slightly angled for depth
+- Soft studio lighting, subtle shadow beneath
+- Product occupies ~55-65% of image height
+
+ZONE 3 — TOP-RIGHT CORNER (optional badge):
+- ONLY include if there is a specific measurable spec (size, weight, capacity, quantity, temperature range)
+- Badge style: circular or rounded rectangle, contrasting color
+- DO NOT put vague text like "ideal for daily use" or "comfortable fit"
+- If no meaningful spec exists — leave this zone EMPTY
+
+ZONE 4 — BOTTOM STRIP (bottom 12% of image):
+- Dark or contrasting background strip
+- 3-4 mini feature badges in a row, each: small icon + short text (2-3 words)
+- These should be DIFFERENT from the main 3 features above
+- Additional product specs or use cases
+
+DECORATIVE ELEMENT:
+- Large watermark-style text in background (very low opacity, ~10-15%)
+- Use product category word or model number if visible on product
 
 ---
 
-Create a high-end product infographic advertisement based on the following analysis:
-
-[INSERT THE FULL ANALYSIS HERE]
-
-Requirements:
-- Keep the same composition and layout style
-- Maintain similar visual hierarchy (headline, features, product placement)
-- Use a clean, modern, minimalistic advertising design
-- Ensure perfect, readable typography (NO distorted or broken text)
-- Use correct grammar and professional wording
-
-Design details:
-- Background: recreate similar style but improved (more realistic, more depth)
-- Lighting: soft studio lighting with realistic reflections
-- Product: ultra-realistic, sharp, slightly tilted for depth
-- Colors: consistent palette, premium look
-
-Text:
+TEXT RULES:
 {lang_instruction}
+{caps_note}
+- Subheadline and feature text: sentence case
 - Put every text element in "quotes" for accurate rendering
-- Keep SHORT: 2-4 words titles, 5-8 words descriptions
-- NO CapsLock
+- Feature titles: 2-3 words max, bold
+- Feature descriptions: 5-8 words, specific and meaningful
 - NO emoji in image text
+- Bottom strip text: 2-3 words, ALL CAPS
 
-Features:
-- Show 3-4 feature points with minimal icons on the LEFT side
-- Each feature: icon + bold title + short description below
-- Features arranged VERTICALLY (list style), not horizontally
-- NO bottom 3 blocks/cards — use feature list instead
+FEATURE CONTENT RULES (CRITICAL):
+- Features must describe REAL, SPECIFIC product properties
+- Base features on the product category:
+  * Footwear: cushioning technology, breathable mesh upper, rubber outsole grip, durable suede/leather
+  * Clothing: fabric composition, insulation level, fit type, water resistance
+  * Kitchen: material, heat resistance, capacity, coating type
+  * Electronics: battery life, connectivity, display specs, weight
+  * Bags: material, compartments, volume (liters), strap type
+- NEVER write vague features like "high quality", "good design", "comfortable", "durable product"
+- Each feature must answer: WHAT exactly makes this product good in this aspect?
 
-Layout (3:4 portrait):
-- Product as hero image (center/right, ~50-60% of image)
-- Headline top-left, large bold text
-- Subheadline below headline, smaller
-- Features list on the left side, vertically arranged
-- Badge (if applicable) on the right side
-- Clean bottom section with closing tagline
+BACKGROUND & STYLE:
+- Background: clean, modern — concrete texture, gradient, or minimal studio
+- Overall mood derived from product colors and category
+- Premium commercial advertising aesthetic
 
-Extras:
-- Add subtle realistic elements depending on product
-- Maintain balanced spacing and alignment
-- Marketplace compliant (Uzum, Wildberries style)
-
-Quality:
-- Ultra realistic
-- 4K commercial advertising quality
+QUALITY:
+- Ultra realistic, 4K commercial advertising quality
 - No artifacts, no text distortion, no misspellings
 
 ⚠️ UZUM MARKET RULES (MANDATORY):
 {banned}
 - NO comparative/superlative claims
-- NO excessive punctuation
-- NEVER put any brand name or logo text on the image
-- Instead of brand name, use product type or feature as headline
+- NO excessive punctuation or exclamation marks in features
+- NEVER put any brand name or logo on the image — causes product BLOCKING
+- Use product TYPE as headline, never brand name
+- Text printed on the product (labels, embroidery, engravings) — keep EXACTLY as is or omit — NEVER translate
 
 CRITICAL RULES:
-1. ALL text spelled PERFECTLY
+1. ALL headline text in ALL CAPS
 2. Put all text in "quotes"
 3. ABSOLUTELY NO BRAND NAMES anywhere on the image
 4. NEVER use banned words
-5. Use product type + key feature as headline
-6. NEVER translate text that is printed/written on the product — if product has "Coffee Time" written on it, do NOT write "Kofe vaqti" or any translation. Either keep it exactly or don't include it.
-7. Any text visible on the product (labels, prints, engravings) must be kept in original language or omitted entirely — NEVER translated
+5. Features must be SPECIFIC and MEANINGFUL — not obvious statements
+6. Bottom strip MUST have 3-4 mini badges
+7. Icons must clearly represent the feature they describe
 """
 
 def write_infographic_prompt(analysis, text_lang):

@@ -1311,7 +1311,7 @@ async def main():
     ])
 
     # Payment modulga bot ni ulash
-    payment.set_bot(bot, notify_payment)
+    payment.set_bot(bot, notify_payment, reload_tariffs_callback=load_tariffs)
 
     logger.info("=" * 50)
     logger.info("🚀 Marketplace Bot v13 — PostgreSQL + Click to'lov")

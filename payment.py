@@ -84,12 +84,14 @@ def _check_sign(data: dict) -> str:
 
 _bot_instance = None
 _bot_notify_callback = None
+_reload_tariffs_callback = None
 
 
-def set_bot(bot_instance, notify_callback=None):
-    global _bot_instance, _bot_notify_callback
+def set_bot(bot_instance, notify_callback=None, reload_tariffs_callback=None):
+    global _bot_instance, _bot_notify_callback, _reload_tariffs_callback
     _bot_instance = bot_instance
     _bot_notify_callback = notify_callback
+    _reload_tariffs_callback = reload_tariffs_callback
 
 
 # ── Click callback handlerlari ───────────────────────────────────
@@ -268,6 +270,9 @@ async def admin_update_tariff(request: web.Request) -> web.Response:
             data["name_uz"], data["name_ru"],
             int(data["price"]), bool(data.get("is_active", True))
         )
+        # Bot cache ni yangilash
+        if _reload_tariffs_callback:
+            await _reload_tariffs_callback()
         return web.json_response({"ok": True})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)

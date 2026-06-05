@@ -29,6 +29,7 @@ from openai import OpenAI
 from PIL import Image
 from aiohttp import web
 import payment
+import database as db
 
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -49,7 +50,21 @@ dp = Dispatcher()
 router = Router()
 executor = ThreadPoolExecutor(max_workers=4)
 user_tasks = {}
-user_settings = {}
+
+# ── Sozlamalar cache (DB ga har safar murojaat qilmaslik uchun) ──
+_settings_cache: dict[int, dict] = {}
+
+async def get_settings(uid: int) -> dict:
+    if uid not in _settings_cache:
+        _settings_cache[uid] = await db.get_user_settings(uid)
+    return _settings_cache[uid]
+
+async def set_setting(uid: int, field: str, value):
+    await db.set_user_setting(uid, field, value)
+    if uid in _settings_cache:
+        _settings_cache[uid][field] = value
+    else:
+        _settings_cache[uid] = await db.get_user_settings(uid)
 
 # Tarif narxlari (so'mda)
 TARIFF_PRICES = {
@@ -182,27 +197,29 @@ TEXTS = {
     },
 }
 
-def t(uid, key, **kw):
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+def t(settings: dict, key, **kw):
+    """settings dict bilan ishlatiladi (await get_settings(uid) natijasi)"""
+    lang = settings.get("ui_lang", "uz")
     txt = TEXTS.get(lang, TEXTS["uz"]).get(key, key)
     return txt.format(**kw) if isinstance(txt, str) and kw else txt
 
-def get_text_lang(uid): return user_settings.get(uid, {}).get("text_lang", "ru")
-def get_tariff(uid): return user_settings.get(uid, {}).get("tariff", 0)
-def get_balance(uid): return payment.get_balance(uid)
+def t_uid(uid, key, **kw):
+    """Cache dan sync o'qish (faqat cache to'ldirilgan bo'lsa)"""
+    settings = _settings_cache.get(uid, {"ui_lang": "uz"})
+    return t(settings, key, **kw)
 
-def get_progress(uid, step):
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+def get_progress(settings: dict, step):
+    lang = settings.get("ui_lang", "uz")
     stages = TEXTS.get(lang, TEXTS["uz"])["progress"]
     s = stages[min(step, len(stages)-1)]
-    tariff = get_tariff(uid)
+    tariff = settings.get("tariff", 0)
     names = TEXTS.get(lang, TEXTS["uz"])["tariff_names"]
     tariff_name = names.get(tariff, "")
     price = TARIFF_PRICES.get(tariff, 0)
     return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name} ({price:,} so'm)\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
 
-def get_reply_keyboard(uid):
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+def get_reply_keyboard(settings: dict):
+    lang = settings.get("ui_lang", "uz")
     tx = TEXTS.get(lang, TEXTS["uz"])
     return ReplyKeyboardMarkup(keyboard=[
         [KeyboardButton(text=tx["btn_tariffs"]), KeyboardButton(text=tx["btn_balance"]), KeyboardButton(text=tx["btn_samples"])],
@@ -666,7 +683,9 @@ def gen_card_step2(image_bytes, text_lang, context):
 async def update_progress(wait_msg, uid, stop):
     step = 0
     while not stop.is_set():
-        try: await wait_msg.edit_text(get_progress(uid, step), parse_mode=ParseMode.HTML)
+        try:
+            settings = await get_settings(uid)
+            await wait_msg.edit_text(get_progress(settings, step), parse_mode=ParseMode.HTML)
         except: pass
         step += 1
         try: await asyncio.wait_for(stop.wait(), timeout=7); break
@@ -725,13 +744,15 @@ async def send_images(message, variants, label, prefix="v"):
         await message.answer_media_group(media=mg)
     elif variants:
         await message.answer_photo(photo=BufferedInputFile(file=variants[0], filename=f"{prefix}_{uid}_{ts}.jpg"), caption=label, parse_mode=ParseMode.HTML)
-    dl = "💾 Yuklab olish" if user_settings.get(uid, {}).get("ui_lang") == "uz" else "💾 Скачать"
+    settings = await get_settings(uid)
+    dl = "💾 Yuklab olish" if settings.get("ui_lang") == "uz" else "💾 Скачать"
     for i, v in enumerate(variants):
         await message.answer_document(document=BufferedInputFile(file=v, filename=f"{prefix}_{i+1}_{uid}_{ts}.jpg"), caption=f"{dl} {i+1}")
 
 async def send_card_texts(message, card, full_uz, full_ru):
     uid = message.from_user.id
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
     feat_uz = [l.strip() for l in card['feat_uz'].split('\n') if l.strip()]
     feat_ru = [l.strip() for l in card['feat_ru'].split('\n') if l.strip()]
     clean = lambda t: re.sub(r'\*\*(.+?)\*\*', r'\1', t)
@@ -742,7 +763,7 @@ async def send_card_texts(message, card, full_uz, full_ru):
     else:
         n,s,d,f = "1. Название товара","2. Краткое описание товара","3. Описание товара","4. Характеристики товара"
 
-    msg1 = (f"{t(uid,'done_text')}\n\n📌 <b>{n}</b>\n\n"
+    msg1 = (f"{t(settings,'done_text')}\n\n📌 <b>{n}</b>\n\n"
             f"🇺🇿 ({len(card['name_uz'])} belgi):\n<pre>{card['name_uz']}</pre>\n"
             f"🇷🇺 ({len(card['name_ru'])} belgi):\n<pre>{card['name_ru']}</pre>\n\n"
             f"📝 <b>{s}</b>\n\n"
@@ -766,32 +787,32 @@ async def send_card_texts(message, card, full_uz, full_ru):
 # ── /start — faqat til tanlash ───────────────────────────────────
 @router.message(CommandStart())
 async def cmd_start(msg: types.Message):
+    settings = await get_settings(msg.from_user.id)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
     ]])
-    await msg.answer(t(msg.from_user.id, "welcome"), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await msg.answer(t(settings, "welcome"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 @router.callback_query(F.data.startswith("lang_ui_"))
 async def cb_ui(cb: CallbackQuery):
     uid = cb.from_user.id
-    if uid not in user_settings: user_settings[uid] = {}
-    user_settings[uid]["ui_lang"] = cb.data.replace("lang_ui_", "")
+    await set_setting(uid, "ui_lang", cb.data.replace("lang_ui_", ""))
     await cb.answer()
+    settings = await get_settings(uid)
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="lang_text_uz"),
         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_text_ru"),
     ]])
-    await cb.message.edit_text(t(uid, "choose_text_lang"), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await cb.message.edit_text(t(settings, "choose_text_lang"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 @router.callback_query(F.data.startswith("lang_text_"))
 async def cb_text(cb: CallbackQuery):
     uid = cb.from_user.id
-    if uid not in user_settings: user_settings[uid] = {}
-    user_settings[uid]["text_lang"] = cb.data.replace("lang_text_", "")
-
+    await set_setting(uid, "text_lang", cb.data.replace("lang_text_", ""))
     await cb.answer()
 
+    settings = await get_settings(uid)
     chat_id = cb.message.chat.id
     tariff_kb = get_tariff_keyboard()
 
@@ -818,21 +839,21 @@ async def cb_text(cb: CallbackQuery):
         await bot.send_photo(
             chat_id=chat_id,
             photo=photo_file,
-            caption=t(uid, "choose_tariff"),
+            caption=t(settings, "choose_tariff"),
             parse_mode=ParseMode.HTML,
             reply_markup=tariff_kb,
         )
     else:
         try:
             await cb.message.edit_text(
-                t(uid, "choose_tariff"),
+                t(settings, "choose_tariff"),
                 parse_mode=ParseMode.HTML,
                 reply_markup=tariff_kb,
             )
         except Exception:
             await bot.send_message(
                 chat_id=chat_id,
-                text=t(uid, "choose_tariff"),
+                text=t(settings, "choose_tariff"),
                 parse_mode=ParseMode.HTML,
                 reply_markup=tariff_kb,
             )
@@ -856,47 +877,45 @@ async def btn_tariffs(msg: types.Message):
                 photo_file = FSInputFile(TARIFF_IMAGE)
         except Exception:
             photo_file = FSInputFile(TARIFF_IMAGE)
-        await msg.answer_photo(photo=photo_file, caption=t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
+        await msg.answer_photo(photo=photo_file, caption=t(await get_settings(uid), "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
     else:
-        await msg.answer(t(uid, "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
+        await msg.answer(t(await get_settings(uid), "choose_tariff"), parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
 
 @router.callback_query(F.data.startswith("tariff_"))
 async def cb_tariff(cb: CallbackQuery):
     uid = cb.from_user.id
-    if uid not in user_settings: user_settings[uid] = {}
     tariff_num = int(cb.data.replace("tariff_", ""))
-    user_settings[uid]["tariff"] = tariff_num
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    await set_setting(uid, "tariff", tariff_num)
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
     names = TEXTS[lang]["tariff_names"]
     tariff_name = names.get(tariff_num, "")
     tariff_price = f"{TARIFF_PRICES.get(tariff_num, 0):,}"
     await cb.answer()
 
-    # Avvalgi xabarni yangilash
     try:
         await cb.message.edit_caption(
-            caption=t(uid, "tariff_set", name=tariff_name, price=tariff_price),
+            caption=t(settings, "tariff_set", name=tariff_name, price=tariff_price),
             parse_mode=ParseMode.HTML,
         )
     except Exception:
         try:
             await cb.message.edit_text(
-                t(uid, "tariff_set", name=tariff_name, price=tariff_price),
+                t(settings, "tariff_set", name=tariff_name, price=tariff_price),
                 parse_mode=ParseMode.HTML,
             )
         except Exception:
             await bot.send_message(
                 chat_id=cb.message.chat.id,
-                text=t(uid, "tariff_set", name=tariff_name, price=tariff_price),
+                text=t(settings, "tariff_set", name=tariff_name, price=tariff_price),
                 parse_mode=ParseMode.HTML,
             )
 
-    # Joriy tarif ko'rsatilgan xabar + reply keyboard
     await bot.send_message(
         chat_id=cb.message.chat.id,
-        text=t(uid, "ready_with_tariff", tariff=tariff_name, price=tariff_price),
+        text=t(settings, "ready_with_tariff", tariff=tariff_name, price=tariff_price),
         parse_mode=ParseMode.HTML,
-        reply_markup=get_reply_keyboard(uid),
+        reply_markup=get_reply_keyboard(settings),
     )
 
 
@@ -907,8 +926,9 @@ user_topup_state = {}  # {uid: True} — summa kutilmoqda
 @router.message(F.text.in_(["💰 Balans", "💰 Баланс"]))
 async def btn_balance(msg: types.Message):
     uid = msg.from_user.id
-    balance = get_balance(uid)
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    balance = await db.get_balance(uid)
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
 
     if lang == "uz":
         text = f"💰 <b>Balansingiz:</b> {balance:,} so'm"
@@ -924,7 +944,8 @@ async def btn_balance(msg: types.Message):
 @router.callback_query(F.data == "topup_start")
 async def cb_topup_start(cb: CallbackQuery):
     uid = cb.from_user.id
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
     user_topup_state[uid] = True
     await cb.answer()
 
@@ -940,7 +961,8 @@ async def cb_topup_start(cb: CallbackQuery):
 @router.message(F.text.in_(["📋 Namunalar", "📋 Примеры"]))
 async def btn_samples(msg: types.Message):
     uid = msg.from_user.id
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
     names = TEXTS[lang]["tariff_names"]
     sample_label = "namuna" if lang == "uz" else "пример"
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -949,19 +971,17 @@ async def btn_samples(msg: types.Message):
         [InlineKeyboardButton(text=f"3️⃣ {names[3]} — {sample_label}", callback_data="sample_3")],
         [InlineKeyboardButton(text=f"4️⃣ {names[4]} — {sample_label}", callback_data="sample_4")],
     ])
-    await msg.answer(t(uid, "samples"), parse_mode=ParseMode.HTML, reply_markup=kb)
+    await msg.answer(t(settings, "samples"), parse_mode=ParseMode.HTML, reply_markup=kb)
 
 @router.callback_query(F.data.startswith("sample_"))
 async def cb_sample(cb: CallbackQuery):
     uid = cb.from_user.id
     tariff_num = int(cb.data.replace("sample_", ""))
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
-    text_lang = get_text_lang(uid)
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
     await cb.answer()
 
     samples_dir = BASE_DIR / "images" / "samples"
-
-    # Namuna rasmlarni topish (tarif1_1.jpg, tarif1_2.jpg, ...)
     sample_images = sorted(samples_dir.glob(f"tarif{tariff_num}_*.jpg"))
 
     if not sample_images:
@@ -969,7 +989,6 @@ async def cb_sample(cb: CallbackQuery):
         await cb.message.answer(no_sample)
         return
 
-    # Rasmlarni yuborish
     if len(sample_images) >= 2:
         media = [
             InputMediaPhoto(
@@ -978,7 +997,7 @@ async def cb_sample(cb: CallbackQuery):
                 parse_mode=ParseMode.HTML,
             ),
         ]
-        for img in sample_images[1:4]:  # max 4 ta rasm
+        for img in sample_images[1:4]:
             media.append(InputMediaPhoto(media=FSInputFile(img)))
         await cb.message.answer_media_group(media=media)
     else:
@@ -988,10 +1007,8 @@ async def cb_sample(cb: CallbackQuery):
             parse_mode=ParseMode.HTML,
         )
 
-    # Namuna textlar (tarif 2 va 4 uchun) — real format
     from samples import get_sample_messages
     messages = get_sample_messages(tariff_num)
-
     if messages:
         for msg_text in messages:
             await send_long(cb.message.chat.id, msg_text)
@@ -1012,10 +1029,13 @@ async def cmd_settings(msg: types.Message): await btn_settings(msg)
 # ── ❓ Yordam ────────────────────────────────────────────────────
 @router.message(F.text.in_(["❓ Yordam", "❓ Помощь"]))
 async def btn_help(msg: types.Message):
-    await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
+    settings = await get_settings(msg.from_user.id)
+    await msg.answer(t(settings, "help"), parse_mode=ParseMode.HTML)
 
 @router.message(Command("help"))
-async def cmd_help(msg: types.Message): await msg.answer(t(msg.from_user.id, "help"), parse_mode=ParseMode.HTML)
+async def cmd_help(msg: types.Message):
+    settings = await get_settings(msg.from_user.id)
+    await msg.answer(t(settings, "help"), parse_mode=ParseMode.HTML)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -1025,9 +1045,10 @@ async def cmd_help(msg: types.Message): await msg.answer(t(msg.from_user.id, "he
 @router.message(F.photo)
 async def handle_photo(message: types.Message):
     uid = message.from_user.id
+    settings = await get_settings(uid)
 
     # Til tekshiruv
-    if uid not in user_settings or "text_lang" not in user_settings.get(uid, {}):
+    if not settings.get("text_lang"):
         kb = InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
             InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
@@ -1036,15 +1057,15 @@ async def handle_photo(message: types.Message):
         return
 
     # Tarif tekshiruv
-    tariff = get_tariff(uid)
+    tariff = settings.get("tariff", 0)
     if tariff == 0:
-        await message.answer(t(uid, "error_no_tariff"), parse_mode=ParseMode.HTML)
+        await message.answer(t(settings, "error_no_tariff"), parse_mode=ParseMode.HTML)
         return
 
     # Balans tekshiruv
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    lang = settings.get("ui_lang", "uz")
     price = TARIFF_PRICES.get(tariff, 0)
-    balance = get_balance(uid)
+    balance = await db.get_balance(uid)
     if balance < price:
         if lang == "uz":
             text = (
@@ -1071,14 +1092,14 @@ async def handle_photo(message: types.Message):
         return
 
     if user_tasks.get(uid):
-        await message.answer(t(uid, "busy")); return
+        await message.answer(t(settings, "busy")); return
 
     user_tasks[uid] = True
-    text_lang = get_text_lang(uid)
+    text_lang = settings.get("text_lang", "ru")
     user_msg_id = message.message_id
 
     stop = asyncio.Event()
-    wait_msg = await message.answer(get_progress(uid, 0), parse_mode=ParseMode.HTML)
+    wait_msg = await message.answer(get_progress(settings, 0), parse_mode=ParseMode.HTML)
     progress = asyncio.create_task(update_progress(wait_msg, uid, stop))
 
     try:
@@ -1093,7 +1114,7 @@ async def handle_photo(message: types.Message):
         cr = check_copyright(analysis)
         if cr:
             stop.set(); await progress
-            await wait_msg.edit_text(t(uid, "error_copyright", keyword=cr), parse_mode=ParseMode.HTML)
+            await wait_msg.edit_text(t(settings, "error_copyright", keyword=cr), parse_mode=ParseMode.HTML)
             return
 
         # 2. Infografik (tariflar 1-4)
@@ -1116,14 +1137,17 @@ async def handle_photo(message: types.Message):
         stop.set(); await progress
 
         # Balansdan yechish
-        payment.deduct_balance(uid, price)
-        new_balance = get_balance(uid)
+        await db.deduct_balance(uid, price)
+        # Cache yangilash
+        if uid in _settings_cache:
+            _settings_cache[uid]["balance"] = await db.get_balance(uid)
+        new_balance = await db.get_balance(uid)
         logger.info(f"Balans yechildi: user={uid}, -{price}, qoldi={new_balance}")
 
         # Natijalar
-        await send_images(message, infographics, t(uid, "done_infographic"), "infographic")
+        await send_images(message, infographics, t(settings, "done_infographic"), "infographic")
         if promos:
-            await send_images(message, promos, t(uid, "done_promo"), "promo")
+            await send_images(message, promos, t(settings, "done_promo"), "promo")
         if card:
             await send_card_texts(message, card, full_uz, full_ru)
 
@@ -1131,7 +1155,6 @@ async def handle_photo(message: types.Message):
         except: pass
         await wait_msg.delete()
 
-        # Yakuniy xabar — balans ko'rsatiladi
         if lang == "uz":
             fin = (
                 f"✅ <b>Tayyor!</b>\n\n"
@@ -1152,11 +1175,11 @@ async def handle_photo(message: types.Message):
         stop.set(); await progress
         logger.error(f"Xatolik: user={uid}, error={e}")
         err = str(e).lower()
-        if "billing" in err or "quota" in err: em = t(uid, "error_billing")
-        elif "rate_limit" in err: em = t(uid, "error_rate")
-        elif "moderation" in err or "safety" in err: em = t(uid, "error_safety")
+        if "billing" in err or "quota" in err: em = t(settings, "error_billing")
+        elif "rate_limit" in err: em = t(settings, "error_rate")
+        elif "moderation" in err or "safety" in err: em = t(settings, "error_safety")
         else: em = f"<code>{str(e)[:300]}</code>"
-        await wait_msg.edit_text(f"{t(uid, 'error')}\n\n{em}", parse_mode=ParseMode.HTML)
+        await wait_msg.edit_text(f"{t(settings, 'error')}\n\n{em}", parse_mode=ParseMode.HTML)
 
     finally:
         user_tasks.pop(uid, None)
@@ -1170,13 +1193,13 @@ async def handle_text(msg: types.Message):
     if msg.text in btn_texts: return
 
     uid = msg.from_user.id
-    lang = user_settings.get(uid, {}).get("ui_lang", "uz")
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
 
     # To'ldirish summasi kutilmoqda
     if user_topup_state.get(uid):
         user_topup_state.pop(uid, None)
 
-        # Raqamni tozalash (bo'sh joy, vergul, nuqta olib tashlash)
         amount_text = msg.text.strip().replace(" ", "").replace(",", "").replace(".", "")
 
         if not amount_text.isdigit():
@@ -1202,7 +1225,6 @@ async def handle_text(msg: types.Message):
                 await msg.answer("❌ Максимальная сумма: 10,000,000 сум", parse_mode=ParseMode.HTML)
             return
 
-        # Click to'lov linki
         pay_url = payment.generate_payment_link(uid, amount)
 
         if lang == "uz":
@@ -1224,20 +1246,22 @@ async def handle_text(msg: types.Message):
         await msg.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
-    await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
+    await msg.answer(t(settings, "send_photo"), parse_mode=ParseMode.HTML)
 
 @router.message(F.document)
 async def handle_doc(msg: types.Message):
     if msg.document.mime_type and msg.document.mime_type.startswith("image/"):
         await msg.answer("📸 Rasmni oddiy rasm sifatida yuboring!")
     else:
-        await msg.answer(t(msg.from_user.id, "send_photo"), parse_mode=ParseMode.HTML)
+        settings = await get_settings(msg.from_user.id)
+        await msg.answer(t(settings, "send_photo"), parse_mode=ParseMode.HTML)
 
 
 # ── Ishga tushirish ──────────────────────────────────────────────
 async def notify_payment(user_id: int, amount: int, new_balance: int):
     """To'lov bo'lganda foydalanuvchiga xabar yuborish"""
-    lang = user_settings.get(user_id, {}).get("ui_lang", "uz")
+    settings = await get_settings(user_id)
+    lang = settings.get("ui_lang", "uz")
     if lang == "uz":
         text = (
             f"✅ <b>To'lov qabul qilindi!</b>\n\n"
@@ -1257,6 +1281,9 @@ async def notify_payment(user_id: int, amount: int, new_balance: int):
 
 
 async def main():
+    # DB jadvallarni yaratish
+    await db.init_db()
+
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Boshlash / Запустить"),
@@ -1268,7 +1295,7 @@ async def main():
     payment.set_bot(bot, notify_payment)
 
     logger.info("=" * 50)
-    logger.info("🚀 Marketplace Bot v12 — Click to'lov bilan")
+    logger.info("🚀 Marketplace Bot v13 — PostgreSQL + Click to'lov")
     logger.info(f"📁 Tarif rasmi: {TARIFF_IMAGE} ({'✅' if TARIFF_IMAGE.exists() else '❌'})")
     logger.info(f"💳 Click: service={payment.CLICK_SERVICE_ID}")
     logger.info("=" * 50)

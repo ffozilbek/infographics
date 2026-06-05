@@ -256,7 +256,7 @@ Return ONLY structured output in this format:
 
 1. Product Info:
 - Product type:
-- Brand: not applicable
+- Brand (if visible):
 - Category:
 
 2. Visual Style:
@@ -292,10 +292,11 @@ Return ONLY structured output in this format:
 - Target audience (if inferable):
 
 IMPORTANT:
-- NEVER include any brand names — always write "Brand: not applicable"
-- If product has text/labels printed on it, write them EXACTLY as shown in original language — do NOT translate
+- NEVER include any brand names in your analysis — skip brand entirely
+- Write "Brand: not applicable" for the brand field
 - Focus only on product type, features, colors, materials
-- Keep descriptions short and precise"""
+- Keep descriptions short and precise
+- Focus on visual and structural analysis only"""
 
 def analyze_product(image_bytes):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
@@ -335,11 +336,9 @@ def get_infographic_prompt_system(text_lang):
     if text_lang == "uz":
         lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
         banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
-        caps_note = "Headline text MUST be in ALL CAPS for visual impact (e.g., SPORT POYABZAL, ISSIQ KURTKA)."
     else:
         lang_instruction = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
         banned = 'BANNED: "акция", "бесплатно", "скидка", "топ", "хит", "новинка", "лучший", "дёшево".'
-        caps_note = "Headline text MUST be in ALL CAPS for visual impact (e.g., СПОРТИВНАЯ ОБУВЬ, ЗИМНЯЯ КУРТКА)."
 
     return f"""You are an expert marketplace infographic prompt engineer.
 
@@ -347,103 +346,72 @@ You will receive a structured product analysis. Based on it, write a DETAILED im
 
 YOUR OUTPUT MUST BE ONLY THE PROMPT TEXT. No explanations, no markdown, no backticks.
 
----
-
-LAYOUT STRUCTURE (3:4 portrait, strictly follow this):
-
-ZONE 1 — TOP SECTION (top 25% of image):
-- Large ALL CAPS bold headline (2-4 words) — product TYPE as headline, NOT brand name
-- Smaller subheadline below (1 line, 6-10 words) — describe key benefit or use case
-- Small model/series label if applicable (top-left corner, compact)
-
-ZONE 2 — MIDDLE-LEFT (features list, left 40%):
-- 3 feature rows, vertically stacked
-- Each row: circular icon + bold title (2-3 words) + short description (5-8 words)
-- Icons must be SIMPLE, CLEAR, and DIRECTLY related to the feature:
-  * cushioning/comfort → cloud or cushion icon
-  * breathability/airflow → mesh grid or airflow arrows icon
-  * durability/protection → shield icon
-  * grip/sole → shoe sole pattern icon
-  * waterproof → water drop with X or umbrella icon
-  * lightweight → feather icon
-  * insulation/warmth → flame or snowflake icon
-  * adjustable → sliders or knob icon
-  * material/fabric → layered squares icon
-  * stitching/construction → needle and thread icon
-  * storage/capacity → box or drawer icon
-  * temperature → thermometer icon
-  * non-stick → pan with droplet icon
-  * power/battery → lightning bolt icon
-
-ZONE 2 — MIDDLE-RIGHT (product hero, right 55%):
-- Product ultra-realistic, sharp, slightly angled for depth
-- Soft studio lighting, subtle shadow beneath
-- Product occupies ~55-65% of image height
-
-ZONE 3 — TOP-RIGHT CORNER (optional badge):
-- ONLY include if there is a specific measurable spec (size, weight, capacity, quantity, temperature range)
-- Badge style: circular or rounded rectangle, contrasting color
-- DO NOT put vague text like "ideal for daily use" or "comfortable fit"
-- If no meaningful spec exists — leave this zone EMPTY
-
-ZONE 4 — BOTTOM STRIP (bottom 12% of image):
-- Dark or contrasting background strip
-- 3-4 mini feature badges in a row, each: small icon + short text (2-3 words)
-- These should be DIFFERENT from the main 3 features above
-- Additional product specs or use cases
-
-DECORATIVE ELEMENT:
-- Large watermark-style text in background (very low opacity, ~10-15%)
-- Use product category word or model number if visible on product
+Write the prompt following this structure:
 
 ---
 
-TEXT RULES:
+Create a high-end product infographic advertisement based on the following analysis:
+
+[INSERT THE FULL ANALYSIS HERE]
+
+Requirements:
+- Keep the same composition and layout style
+- Maintain similar visual hierarchy (headline, features, product placement)
+- Use a clean, modern, minimalistic advertising design
+- Ensure perfect, readable typography (NO distorted or broken text)
+- Use correct grammar and professional wording
+
+Design details:
+- Background: recreate similar style but improved (more realistic, more depth)
+- Lighting: soft studio lighting with realistic reflections
+- Product: ultra-realistic, sharp, slightly tilted for depth
+- Colors: consistent palette, premium look
+
+Text:
 {lang_instruction}
-{caps_note}
-- Subheadline and feature text: sentence case
 - Put every text element in "quotes" for accurate rendering
-- Feature titles: 2-3 words max, bold
-- Feature descriptions: 5-8 words, specific and meaningful
+- Keep SHORT: 2-4 words titles, 5-8 words descriptions
+- NO CapsLock
 - NO emoji in image text
-- Bottom strip text: 2-3 words, ALL CAPS
 
-FEATURE CONTENT RULES (CRITICAL):
-- Features must describe REAL, SPECIFIC product properties
-- Base features on the product category:
-  * Footwear: cushioning technology, breathable mesh upper, rubber outsole grip, durable suede/leather
-  * Clothing: fabric composition, insulation level, fit type, water resistance
-  * Kitchen: material, heat resistance, capacity, coating type
-  * Electronics: battery life, connectivity, display specs, weight
-  * Bags: material, compartments, volume (liters), strap type
-- NEVER write vague features like "high quality", "good design", "comfortable", "durable product"
-- Each feature must answer: WHAT exactly makes this product good in this aspect?
+Features:
+- Show 3-4 feature points with minimal icons on the LEFT side
+- Each feature: icon + bold title + short description below
+- Features arranged VERTICALLY (list style), not horizontally
+- NO bottom 3 blocks/cards — use feature list instead
 
-BACKGROUND & STYLE:
-- Background: clean, modern — concrete texture, gradient, or minimal studio
-- Overall mood derived from product colors and category
-- Premium commercial advertising aesthetic
+Layout (3:4 portrait):
+- Product as hero image (center/right, ~50-60% of image)
+- Headline top-left, large bold text
+- Subheadline below headline, smaller
+- Features list on the left side, vertically arranged
+- Badge (if applicable) on the right side
+- Clean bottom section with closing tagline
 
-QUALITY:
-- Ultra realistic, 4K commercial advertising quality
+Extras:
+- Add subtle realistic elements depending on product
+- Maintain balanced spacing and alignment
+- Marketplace compliant (Uzum, Wildberries style)
+
+Quality:
+- Ultra realistic
+- 4K commercial advertising quality
 - No artifacts, no text distortion, no misspellings
 
 ⚠️ UZUM MARKET RULES (MANDATORY):
 {banned}
 - NO comparative/superlative claims
-- NO excessive punctuation or exclamation marks in features
-- NEVER put any brand name or logo on the image — causes product BLOCKING
-- Use product TYPE as headline, never brand name
-- Text printed on the product (labels, embroidery, engravings) — keep EXACTLY as is or omit — NEVER translate
+- NO excessive punctuation
+- NEVER put any brand name or logo text on the image — this is CRITICAL
+- Wrong brand name = product gets BLOCKED on marketplace
+- Instead of brand name, use product type or feature as headline
 
 CRITICAL RULES:
-1. ALL headline text in ALL CAPS
+1. ALL text spelled PERFECTLY
 2. Put all text in "quotes"
-3. ABSOLUTELY NO BRAND NAMES anywhere on the image
+3. ABSOLUTELY NO BRAND NAMES anywhere on the image — not in headline, not in badge, not anywhere
 4. NEVER use banned words
-5. Features must be SPECIFIC and MEANINGFUL — not obvious statements
-6. Bottom strip MUST have 3-4 mini badges
-7. Icons must clearly represent the feature they describe
+5. Use product type + key feature as headline instead of brand (e.g., "Акустическая гитара" not "Kabat")
 """
 
 def write_infographic_prompt(analysis, text_lang):
@@ -487,7 +455,9 @@ async def gen_infographics_parallel(image_bytes, prompt):
 # ══════════════════════════════════════════════════════════════════
 
 def write_promo_prompts(analysis, text_lang):
+    """2 ta FARQLI tavsif rasm prompti yozadi"""
     lang_name = "Uzbek" if text_lang == "uz" else "Russian"
+
     r = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
@@ -500,9 +470,9 @@ Write EXACTLY 2 prompts, separated by the line: ---PROMPT2---
 ⚠️ THE 2 PROMPTS MUST BE COMPLETELY DIFFERENT:
 - Different feature/benefit highlighted
 - Different scene/background/setting
+- Different color scheme
 - Different layout and composition
 - Different text and headlines
-- BUT the product itself must look EXACTLY THE SAME in both — same colors, same shape, same design
 
 PROMPT 1 should focus on the product's PRIMARY FEATURE (e.g., material quality, main function, key technology).
 Show the product in USE or being DEMONSTRATED. Include:
@@ -516,23 +486,15 @@ Show the product in USE or being DEMONSTRATED. Include:
 PROMPT 2 should focus on a COMPLETELY DIFFERENT FEATURE (e.g., convenience, durability, design, versatility).
 Show the product in a DIFFERENT context/setting. Include:
 - Different bold headline in {lang_name} (in "quotes") — NOT similar to Prompt 1
-- Different angle, different background
+- Different angle, different background, different mood
+- Different color palette
 - Different feature callouts
 - Different icons and visual elements
-- BUT product colors and appearance must remain IDENTICAL to the original
-
-⚠️ CRITICAL PRODUCT RULES FOR BOTH PROMPTS:
-- Product must look EXACTLY like the reference image
-- NEVER change product colors — if product is blue, it stays blue in both images
-- NEVER add patterns, decorations, or modifications to the product
-- NEVER make the product more colorful or vibrant than the original
-- Keep the product realistic and true to the reference
 
 Both prompts:
 - Keep the EXACT same product from reference image, DO NOT modify
-- ABSOLUTELY NO brand names or logos on the image
+- ABSOLUTELY NO brand names or logos on the image — brand names cause product blocking
 - Use product type and features instead of brand name
-- If product has text printed on it (like "Coffee Time"), keep it exactly as is — NEVER translate it
 - Square 1:1 format
 - Ultra realistic, commercial advertising quality
 - All text in {lang_name}, in "quotes", short and impactful
@@ -544,7 +506,7 @@ Both prompts:
     raw = r.choices[0].message.content.strip()
     parts = re.split(r'---PROMPT2---|---', raw)
     prompts = [p.strip() for p in parts if p.strip()]
-    logger.info(f"Promo prompts: {len(prompts)}")
+    logger.info(f"Promo prompts: {len(prompts)} generated")
     return prompts[:2] if len(prompts) >= 2 else [prompts[0], prompts[0]] if prompts else ["", ""]
 
 def _gen_promo(image_bytes, prompt):

@@ -17,6 +17,14 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
+from prompts import (
+    analyze_product, check_copyright,
+    get_infographic_prompt_system, write_infographic_prompt,
+    write_promo_prompts,
+    gen_infographics_parallel, gen_promos_parallel,
+    gen_card_step1, gen_card_step2,
+    set_client as set_prompts_client,
+)
 from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
@@ -251,14 +259,7 @@ def get_reply_keyboard(settings: dict):
 # TAHLIL
 # ══════════════════════════════════════════════════════════════════
 
-from prompts import (
-    analyze_product, check_copyright,
-    get_infographic_prompt_system, write_infographic_prompt,
-    write_promo_prompts,
-    gen_infographics_parallel, gen_promos_parallel,
-    gen_card_step1, gen_card_step2,
-    set_client as set_prompts_client,
-)
+
 
 # ══════════════════════════════════════════════════════════════════
 # YORDAMCHILAR

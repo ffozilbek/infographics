@@ -72,7 +72,17 @@ RULES:
 - Feature benefits must say what the customer GAINS, not what the product HAS
 - Keep descriptions short and precise
 - Features and Headline must be written in TARGET LANGUAGE (Uzbek or Russian, as specified in each request)
-- Think like a marketplace copywriter on Uzum/Wildberries, not a product engineer"""
+- Think like a marketplace copywriter on Uzum/Wildberries, not a product engineer
+
+CRITICAL — PRODUCT IDENTITY:
+- First identify WHAT THE ACTUAL PRODUCT IS (the physical object being sold)
+- If the product is a mousepad/mat/rug/poster/pillow/phone case WITH A PRINTED IMAGE on it:
+  * Product type = the physical object (e.g., "gaming mousepad", "decorative rug", "wall poster")
+  * The printed image/pattern on it = just a design feature, NOT the product itself
+  * Features should describe the PHYSICAL OBJECT: material, size, surface, non-slip base, etc.
+  * DO NOT describe the printed image as if it were a separate product
+- Example: A mousepad with soldiers printed on it → Product = mousepad, Design = military theme
+- Example: A mug with a cat printed on it → Product = ceramic mug, Design = cat pattern"""
 
 def analyze_product(image_bytes, text_lang="uz"):
     b64 = base64.b64encode(image_bytes).decode("utf-8")

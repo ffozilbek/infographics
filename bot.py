@@ -338,20 +338,21 @@ async def send_card_texts(message, card, full_uz, full_ru):
     uid = message.from_user.id
     settings = await get_settings(uid)
     lang = settings.get("ui_lang", "uz")
-    feat_uz = [l.strip() for l in clean_feat(card['feat_uz']).split('\n') if l.strip()]
-    feat_ru = [l.strip() for l in clean_feat(card['feat_ru']).split('\n') if l.strip()]
-    def clean(t):
-        t = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', t)  # **, ***, *
-        t = re.sub(r'^#{1,6}\s*', '', t, flags=re.MULTILINE)  # ## headers
-        return t
-    full_uz, full_ru = clean(full_uz), clean(full_ru)
 
-    def clean_feat(t):
-        # Xususiyatlardagi ** va markdown ni tozalash
+    def clean(t):
         t = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', t)
-        t = re.sub(r'^-\s+', '', t, flags=re.MULTILINE)  # - list items
         t = re.sub(r'^#{1,6}\s*', '', t, flags=re.MULTILINE)
         return t
+
+    def clean_feat(t):
+        t = re.sub(r'\*{1,3}(.+?)\*{1,3}', r'\1', t)
+        t = re.sub(r'^-\s+', '', t, flags=re.MULTILINE)
+        t = re.sub(r'^#{1,6}\s*', '', t, flags=re.MULTILINE)
+        return t
+
+    feat_uz = [l.strip() for l in clean_feat(card['feat_uz']).split('\n') if l.strip()]
+    feat_ru = [l.strip() for l in clean_feat(card['feat_ru']).split('\n') if l.strip()]
+    full_uz, full_ru = clean(full_uz), clean(full_ru)
 
     if lang == "uz":
         n,s,d,f = "1. Tovar nomi","2. Tovar qisqacha tavsifi","3. Tovar tavsifi","4. Tovar xususiyatlari"
@@ -737,16 +738,18 @@ async def handle_photo(message: types.Message):
         new_balance = await db.get_balance(uid)
         logger.info(f"Balans yechildi: user={uid}, -{price}, qoldi={new_balance}")
 
+        # Foydalanuvchi rasmi va progress bar ni o'chirish
+        try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
+        except: pass
+        try: await wait_msg.delete()
+        except: pass
+
         # Natijalar
         await send_images(message, infographics, t(settings, "done_infographic"), "infographic")
         if promos:
             await send_images(message, promos, t(settings, "done_promo"), "promo")
         if card:
             await send_card_texts(message, card, full_uz, full_ru)
-
-        try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
-        except: pass
-        await wait_msg.delete()
 
         if lang == "uz":
             fin = (

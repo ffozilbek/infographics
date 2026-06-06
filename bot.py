@@ -430,7 +430,8 @@ Text:
 {lang_instruction}
 - Put every text element in "quotes" for accurate rendering
 - Keep SHORT: 2-4 words titles, 5-8 words descriptions
-- NO CapsLock
+- Headline: ALWAYS in ALL CAPS (e.g., "SPORT POYABZAL", "TEZKOR BLENDER")
+- Feature titles and descriptions: Sentence case (first letter capital only)
 - NO emoji in image text
 
 Features:
@@ -733,14 +734,38 @@ def gen_card_step1(image_bytes, text_lang):
     raw = r.choices[0].message.content.strip()
     logger.info(f"Card step1: {len(raw)} chars")
     result = {"name_uz":"","name_ru":"","short_uz":"","short_ru":"","feat_uz":"","feat_ru":""}
-    for section in raw.split("---"):
-        s = section.strip()
-        if "TOVAR_NOMI_UZ:" in s and "TOVAR_NOMI_RU:" in s:
-            p = s.split("TOVAR_NOMI_RU:"); result["name_uz"]=p[0].replace("TOVAR_NOMI_UZ:","").strip(); result["name_ru"]=p[1].strip()
-        elif "QISQACHA_TAVSIF_UZ:" in s and "QISQACHA_TAVSIF_RU:" in s:
-            p = s.split("QISQACHA_TAVSIF_RU:"); result["short_uz"]=p[0].replace("QISQACHA_TAVSIF_UZ:","").strip(); result["short_ru"]=p[1].strip()
-        elif "XUSUSIYATLARI_UZ:" in s and "XUSUSIYATLARI_RU:" in s:
-            p = s.split("XUSUSIYATLARI_RU:"); result["feat_uz"]=p[0].replace("XUSUSIYATLARI_UZ:","").strip(); result["feat_ru"]=p[1].strip()
+
+    def extract_between(text, start_key, end_key=None):
+        """start_key dan end_key gacha matnni ajratib oladi"""
+        if start_key not in text:
+            return ""
+        after = text.split(start_key, 1)[1].strip()
+        if end_key and end_key in after:
+            after = after.split(end_key, 1)[0]
+        return after.strip()
+
+    # --- bo'yicha bo'lish o'rniga to'g'ridan-to'g'ri key search
+    if "TOVAR_NOMI_UZ:" in raw:
+        result["name_uz"] = extract_between(raw, "TOVAR_NOMI_UZ:", "TOVAR_NOMI_RU:").split("\n")[0].strip()
+    if "TOVAR_NOMI_RU:" in raw:
+        result["name_ru"] = extract_between(raw, "TOVAR_NOMI_RU:", "---").split("\n")[0].strip()
+        if not result["name_ru"]:
+            result["name_ru"] = extract_between(raw, "TOVAR_NOMI_RU:", "QISQACHA").split("\n")[0].strip()
+    if "QISQACHA_TAVSIF_UZ:" in raw:
+        result["short_uz"] = extract_between(raw, "QISQACHA_TAVSIF_UZ:", "QISQACHA_TAVSIF_RU:").strip()
+    if "QISQACHA_TAVSIF_RU:" in raw:
+        result["short_ru"] = extract_between(raw, "QISQACHA_TAVSIF_RU:", "---").strip()
+        if not result["short_ru"]:
+            result["short_ru"] = extract_between(raw, "QISQACHA_TAVSIF_RU:", "XUSUSIYATLARI").strip()
+    if "XUSUSIYATLARI_UZ:" in raw:
+        result["feat_uz"] = extract_between(raw, "XUSUSIYATLARI_UZ:", "XUSUSIYATLARI_RU:").strip()
+    if "XUSUSIYATLARI_RU:" in raw:
+        result["feat_ru"] = extract_between(raw, "XUSUSIYATLARI_RU:", "---").strip()
+        if not result["feat_ru"]:
+            # oxirigacha olish
+            result["feat_ru"] = extract_between(raw, "XUSUSIYATLARI_RU:").strip()
+
+    logger.info(f"Card parsed: name_uz={len(result['name_uz'])}, feat_uz={len(result['feat_uz'])}, feat_ru={len(result['feat_ru'])}")
     return result
 
 def gen_card_step2(image_bytes, text_lang, context):

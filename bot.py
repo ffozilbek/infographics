@@ -42,6 +42,7 @@ import database as db
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+LOG_CHAT_ID = os.getenv("LOG_CHAT_ID", "")  # Kanal yoki gruppa ID (-100xxxxxxxxxx)
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN va OPENAI_API_KEY .env faylda bo'lishi kerak!")
 
@@ -265,6 +266,20 @@ def get_reply_keyboard(settings: dict):
 # YORDAMCHILAR
 # ══════════════════════════════════════════════════════════════════
 
+async def tg_log(text: str):
+    """Kanal/gruppaga log yuborish"""
+    if not LOG_CHAT_ID:
+        return
+    try:
+        await bot.send_message(
+            chat_id=LOG_CHAT_ID,
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.warning(f"tg_log xatolik: {e}")
+
+
 async def update_progress(wait_msg, uid, stop):
     step = 0
     while not stop.is_set():
@@ -383,7 +398,24 @@ async def send_card_texts(message, card, full_uz, full_ru):
 # ── /start — faqat til tanlash ───────────────────────────────────
 @router.message(CommandStart())
 async def cmd_start(msg: types.Message):
-    settings = await get_settings(msg.from_user.id)
+    uid = msg.from_user.id
+    settings = await get_settings(uid)
+    # Yangi user bo'lsa log
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow("SELECT created_at, updated_at FROM users WHERE user_id=$1", uid)
+    is_new = row is None or (row["created_at"] and row["updated_at"] and
+             abs((row["updated_at"] - row["created_at"]).total_seconds()) < 5)
+    await db.ensure_user(uid)
+    if is_new:
+        uname = f"@{msg.from_user.username}" if msg.from_user.username else "username yo'q"
+        name = msg.from_user.full_name or "—"
+        await tg_log(
+            f"👤 <b>Yangi foydalanuvchi</b>\n"
+            f"ID: <code>{uid}</code>\n"
+            f"Ism: {name}\n"
+            f"Username: {uname}"
+        )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
@@ -410,15 +442,29 @@ async def cb_text(cb: CallbackQuery):
 
     settings = await get_settings(uid)
     chat_id = cb.message.chat.id
-    tariff_kb = await get_tariff_keyboard()
 
-    # Til tanlagandan keyin darhol tarif tanlash
+    # Avval reply keyboard chiqarish — foydalanuvchi hamma tugmalarni ko'rsin
+    try:
+        await cb.message.delete()
+    except Exception:
+        pass
+
+    lang = settings.get("ui_lang", "uz")
+    if lang == "uz":
+        ready_text = "✅ <b>Sozlamalar saqlandi!</b>\n\nQuyidagi tugmalardan foydalaning. Rasm yuborish uchun avval tarif tanlang 👇"
+    else:
+        ready_text = "✅ <b>Настройки сохранены!</b>\n\nИспользуйте кнопки ниже. Для отправки фото сначала выберите тариф 👇"
+
+    await bot.send_message(
+        chat_id=chat_id,
+        text=ready_text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=get_reply_keyboard(settings),
+    )
+
+    # Keyin tarif tanlash inline keyboard
+    tariff_kb = await get_tariff_keyboard()
     if TARIFF_IMAGE.exists():
-        try:
-            await cb.message.delete()
-        except Exception:
-            pass
-        # Rasmni Telegram limitiga moslashtirish
         try:
             img = Image.open(TARIFF_IMAGE)
             if max(img.size) > 1280:
@@ -440,19 +486,12 @@ async def cb_text(cb: CallbackQuery):
             reply_markup=tariff_kb,
         )
     else:
-        try:
-            await cb.message.edit_text(
-                t(settings, "choose_tariff"),
-                parse_mode=ParseMode.HTML,
-                reply_markup=tariff_kb,
-            )
-        except Exception:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=t(settings, "choose_tariff"),
-                parse_mode=ParseMode.HTML,
-                reply_markup=tariff_kb,
-            )
+        await bot.send_message(
+            chat_id=chat_id,
+            text=t(settings, "choose_tariff"),
+            parse_mode=ParseMode.HTML,
+            reply_markup=tariff_kb,
+        )
 
 
 # ── 📦 Tariflar ─────────────────────────────────────────────────
@@ -738,6 +777,17 @@ async def handle_photo(message: types.Message):
         new_balance = await db.get_balance(uid)
         logger.info(f"Balans yechildi: user={uid}, -{price}, qoldi={new_balance}")
 
+        # Buyurtma logi
+        tariff_name = get_tariff_name(tariff, "uz")
+        uname = f"@{message.from_user.username}" if message.from_user.username else "username yo'q"
+        await tg_log(
+            f"🛒 <b>Yangi buyurtma</b>\n"
+            f"👤 User: <code>{uid}</code> ({uname})\n"
+            f"📦 Tarif: {tariff_name}\n"
+            f"💰 Narx: {price:,} so'm\n"
+            f"💳 Qolgan balans: {new_balance:,} so'm"
+        )
+
         # Foydalanuvchi rasmi va progress bar ni o'chirish
         try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
         except: pass
@@ -770,6 +820,12 @@ async def handle_photo(message: types.Message):
     except Exception as e:
         stop.set(); await progress
         logger.error(f"Xatolik: user={uid}, error={e}")
+        await tg_log(
+            f"❌ <b>Xatolik</b>\n"
+            f"👤 User: <code>{uid}</code>\n"
+            f"📦 Tarif: {tariff}\n"
+            f"🔴 <code>{str(e)[:300]}</code>"
+        )
         err = str(e).lower()
         if "billing" in err or "quota" in err: em = t(settings, "error_billing")
         elif "rate_limit" in err: em = t(settings, "error_rate")
@@ -874,6 +930,14 @@ async def notify_payment(user_id: int, amount: int, new_balance: int):
         await bot.send_message(user_id, text, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.error(f"Payment notify error: {e}")
+
+    # To'lov logi
+    await tg_log(
+        f"💳 <b>To'lov keldi</b>\n"
+        f"👤 User: <code>{user_id}</code>\n"
+        f"💰 Miqdor: {amount:,} so'm\n"
+        f"💳 Yangi balans: {new_balance:,} so'm"
+    )
 
 
 async def main():

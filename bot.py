@@ -142,7 +142,7 @@ TEXTS = {
             "🔹 📦 <b>Tariflar</b> — tarif tanlash\n"
             "🔹 💰 <b>Balans</b> — balansingizni ko'rish\n"
             "🔹 📋 <b>Namunalar</b> — namuna rasmlarni ko'rish\n"
-            "🔹 ⚙️ <b>Sozlamalar</b> — til o'zgartirish\n\n"
+            "🔹 🌐 <b>Tilni o'zgartirish</b>\n\n"
             "📸 Mahsulot rasmini yuboring — bot ishlaydi!"
         ),
         "done_infographic": "✅ <b>Infografik rasmlar tayyor!</b>",
@@ -160,18 +160,19 @@ TEXTS = {
         "btn_tariffs": "📦 Tariflar",
         "btn_balance": "💰 Balans",
         "btn_samples": "📋 Namunalar",
-        "btn_settings": "⚙️ Sozlamalar",
+        "btn_settings": "🌐 Tilni o'zgartirish",
         "btn_help": "❓ Yordam",
         # Progress
         "progress": [
-            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Mahsulot tahlil qilinmoqda...", "tip": "💡 Professional infografik sotuvni 40% ga oshiradi!"},
-            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Prompt yaratilmoqda...", "tip": "📸 AI mahsulotga mos dizayn tanlaydi"},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Infografik yaratilmoqda...", "tip": "🏪 Rasm Uzum Market standartiga mos bo'ladi"},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Tavsif rasmlari yaratilmoqda...", "tip": "⏱ Biroz kuting..."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Kartochka matnlari tayyorlanmoqda...", "tip": "📝 Matnlar 2 tilda tayyorlanmoqda"},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 To'liq tavsif yozilmoqda...", "tip": "🎯 3000+ belgilik batafsil tavsif"},
-            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Natijalar tayyorlanmoqda...", "tip": "✅ Deyarli tayyor!"},
+            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Mahsulot tahlil qilinmoqda..."},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "💡 Professional infografik sotuvni 40% ga oshiradi!" },
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "📸 AI mahsulotga mos dizayn tanlaydi"},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🏪 Rasm internet do'konlar standartiga mos bo'ladi"},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "⏱️ Biroz kuting..."},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📦 Natijalar tayyorlanmoqda..."},
+            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "✅ Deyarli tayyor!"},
         ],
+
     },
     "ru": {
         "welcome": (
@@ -196,7 +197,7 @@ TEXTS = {
             "🔹 📦 <b>Тарифы</b> — выбрать тариф\n"
             "🔹 💰 <b>Баланс</b> — проверить баланс\n"
             "🔹 📋 <b>Примеры</b> — посмотреть примеры\n"
-            "🔹 ⚙️ <b>Настройки</b> — сменить язык\n\n"
+            "🔹 🌐 <b>Сменить язык</b>\n\n"
             "📸 Отправьте фото товара — бот начнёт работу!"
         ),
         "done_infographic": "✅ <b>Инфографика готова!</b>",
@@ -213,16 +214,16 @@ TEXTS = {
         "btn_tariffs": "📦 Тарифы",
         "btn_balance": "💰 Баланс",
         "btn_samples": "📋 Примеры",
-        "btn_settings": "⚙️ Настройки",
+        "btn_settings": "🌐 Сменить язык",
         "btn_help": "❓ Помощь",
         "progress": [
-            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара...", "tip": "💡 Инфографика увеличивает продажи на 40%!"},
-            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает стиль"},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Генерация инфографики...", "tip": "🏪 Под стандарты Uzum Market"},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Рекламные фото...", "tip": "⏱ Подождите..."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Тексты карточки...", "tip": "📝 На 2 языках"},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 Полное описание...", "tip": "🎯 3000+ символов"},
-            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Подготовка...", "tip": "✅ Почти готово!"},
+            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара..."},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "💡 Профессиональная инфографика помогает увеличить продажи до 40%."},
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "📸 ИИ подбирает дизайн, подходящий для вашего товара."},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🏪 Изображение будет соответствовать стандартам маркетплейсов."},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "⏱️ Пожалуйста, подождите..."},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📦 Подготовка результатов..."},
+            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "✅ Почти готово!"},
         ],
     },
 }
@@ -416,6 +417,22 @@ async def cmd_start(msg: types.Message):
             f"Ism: {name}\n"
             f"Username: {uname}"
         )
+    # Til allaqachon tanlangan bo'lsa — to'g'ridan-to'g'ri reply keyboard
+    if settings.get("ui_lang") and settings.get("text_lang"):
+        lang = settings.get("ui_lang", "uz")
+        if lang == "uz":
+            greet = (
+                f"👋 Xush kelibsiz!\n\n"
+                f"📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
+            )
+        else:
+            greet = (
+                f"👋 Добро пожаловать!\n\n"
+                f"📸 Отправьте фото товара или используйте кнопки."
+            )
+        await msg.answer(greet, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard(settings))
+        return
+
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
         InlineKeyboardButton(text="🇷🇺 Русский", callback_data="lang_ui_ru"),
@@ -437,30 +454,49 @@ async def cb_ui(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("lang_text_"))
 async def cb_text(cb: CallbackQuery):
     uid = cb.from_user.id
+    is_first_setup = not bool((await get_settings(uid)).get("text_lang"))
     await set_setting(uid, "text_lang", cb.data.replace("lang_text_", ""))
     await cb.answer()
 
     settings = await get_settings(uid)
     chat_id = cb.message.chat.id
+    lang = settings.get("ui_lang", "uz")
 
-    # Avval reply keyboard chiqarish — foydalanuvchi hamma tugmalarni ko'rsin
     try:
         await cb.message.delete()
     except Exception:
         pass
 
-    lang = settings.get("ui_lang", "uz")
-    if lang == "uz":
-        ready_text = "✅ <b>Sozlamalar saqlandi!</b>\n\nQuyidagi tugmalardan foydalaning. Rasm yuborish uchun avval tarif tanlang 👇"
+    # Birinchi marta kirgan bo'lsa — welcome bonus
+    if is_first_setup:
+        bonus = get_tariff_price(1)  # 1-tarif narxi
+        await db.add_balance(uid, bonus, "welcome_bonus")
+        name = cb.from_user.first_name or "Foydalanuvchi"
+        if lang == "uz":
+            bonus_text = (
+                f"🎉 <b>Xush kelibsiz, {name}!</b>\n\n"
+                f"🎁 Sizga <b>{bonus:,} so'm</b> sovg'a berildi!\n"
+                f"Bu 1 ta infografik yaratish uchun yetarli.\n\n"
+                f"📸 Mahsulot rasmini yuboring va sinab ko'ring!"
+            )
+        else:
+            bonus_text = (
+                f"🎉 <b>Добро пожаловать, {name}!</b>\n\n"
+                f"🎁 Вам подарено <b>{bonus:,} сум</b>!\n"
+                f"Этого хватит на 1 инфографику.\n\n"
+                f"📸 Отправьте фото товара и попробуйте!"
+            )
+        await bot.send_message(chat_id=chat_id, text=bonus_text,
+                               parse_mode=ParseMode.HTML,
+                               reply_markup=get_reply_keyboard(settings))
     else:
-        ready_text = "✅ <b>Настройки сохранены!</b>\n\nИспользуйте кнопки ниже. Для отправки фото сначала выберите тариф 👇"
-
-    await bot.send_message(
-        chat_id=chat_id,
-        text=ready_text,
-        parse_mode=ParseMode.HTML,
-        reply_markup=get_reply_keyboard(settings),
-    )
+        if lang == "uz":
+            ready_text = "✅ <b>Til saqlandi!</b>\n\nQuyidagi tugmalardan foydalaning."
+        else:
+            ready_text = "✅ <b>Язык сохранён!</b>\n\nИспользуйте кнопки ниже."
+        await bot.send_message(chat_id=chat_id, text=ready_text,
+                               parse_mode=ParseMode.HTML,
+                               reply_markup=get_reply_keyboard(settings))
 
     # Keyin tarif tanlash inline keyboard
     tariff_kb = await get_tariff_keyboard()
@@ -648,7 +684,7 @@ async def cb_sample(cb: CallbackQuery):
 
 
 # ── ⚙️ Sozlamalar ───────────────────────────────────────────────
-@router.message(F.text.in_(["⚙️ Sozlamalar", "⚙️ Настройки"]))
+@router.message(F.text.in_(["🌐 Tilni o'zgartirish", "🌐 Сменить язык"]))
 async def btn_settings(msg: types.Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="🇺🇿 O'zbek", callback_data="lang_ui_uz"),
@@ -840,7 +876,7 @@ async def handle_photo(message: types.Message):
 @router.message(F.text & ~F.text.startswith("/"))
 async def handle_text(msg: types.Message):
     btn_texts = ["📦 Tariflar", "📦 Тарифы", "💰 Balans", "💰 Баланс",
-                 "📋 Namunalar", "📋 Примеры", "⚙️ Sozlamalar", "⚙️ Настройки",
+                 "📋 Namunalar", "📋 Примеры", "🌐 Tilni o'zgartirish", "🌐 Сменить язык",
                  "❓ Yordam", "❓ Помощь"]
     if msg.text in btn_texts: return
 

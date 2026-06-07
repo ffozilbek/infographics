@@ -421,16 +421,24 @@ async def cmd_start(msg: types.Message):
     # Til allaqachon tanlangan bo'lsa — to'g'ridan-to'g'ri reply keyboard
     if settings.get("ui_lang") and settings.get("text_lang"):
         lang = settings.get("ui_lang", "uz")
-        if lang == "uz":
-            greet = (
-                f"👋 Xush kelibsiz!\n\n"
-                f"📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
-            )
+        tariff = settings.get("tariff", 0)
+        if tariff:
+            tariff_name = get_tariff_name(tariff, lang)
+            price = get_tariff_price(tariff)
+            if lang == "uz":
+                tariff_line = f"\n📦 Joriy tarif: <b>{tariff_name}</b> — {price:,} so'm"
+            else:
+                tariff_line = f"\n📦 Текущий тариф: <b>{tariff_name}</b> — {price:,} сум"
         else:
-            greet = (
-                f"👋 Добро пожаловать!\n\n"
-                f"📸 Отправьте фото товара или используйте кнопки."
-            )
+            if lang == "uz":
+                tariff_line = "\n⚠️ Tarif tanlanmagan — 📦 Tariflar tugmasini bosing"
+            else:
+                tariff_line = "\n⚠️ Тариф не выбран — нажмите 📦 Тарифы"
+
+        if lang == "uz":
+            greet = f"👋 <b>Xush kelibsiz!</b>{tariff_line}\n\n📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
+        else:
+            greet = f"👋 <b>Добро пожаловать!</b>{tariff_line}\n\n📸 Отправьте фото товара или используйте кнопки."
         await msg.answer(greet, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard(settings))
         return
 
@@ -732,49 +740,139 @@ async def handle_photo(message: types.Message):
         await message.answer(t(settings, "error_no_tariff"), parse_mode=ParseMode.HTML)
         return
 
-    # Balans tekshiruv
     lang = settings.get("ui_lang", "uz")
+    tariff_name = get_tariff_name(tariff, lang)
     price = get_tariff_price(tariff)
     balance = await db.get_balance(uid)
+
+    # Tasdiqlash — qaysi tarif va narx
+    if lang == "uz":
+        confirm_text = (
+            f"📦 <b>Tarif:</b> {tariff_name}\n"
+            f"💰 <b>Narxi:</b> {price:,} so'm\n"
+            f"💳 <b>Balansingiz:</b> {balance:,} so'm\n\n"
+            f"Davom etish uchun <b>Boshlash</b> ni bosing."
+        )
+        confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Boshlash", callback_data=f"confirm_photo_{message.message_id}")],
+            [InlineKeyboardButton(text="📦 Tarifni almashtirish", callback_data="change_tariff_from_photo")],
+        ])
+    else:
+        confirm_text = (
+            f"📦 <b>Тариф:</b> {tariff_name}\n"
+            f"💰 <b>Стоимость:</b> {price:,} сум\n"
+            f"💳 <b>Ваш баланс:</b> {balance:,} сум\n\n"
+            f"Нажмите <b>Начать</b> для продолжения."
+        )
+        confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✅ Начать", callback_data=f"confirm_photo_{message.message_id}")],
+            [InlineKeyboardButton(text="📦 Сменить тариф", callback_data="change_tariff_from_photo")],
+        ])
+
+    # Photo file_id ni saqlash (confirm kelganda ishlatish uchun)
+    photo_file_id = message.photo[-1].file_id
+    user_tasks[f"pending_{uid}"] = photo_file_id
+
+    await message.answer(confirm_text, parse_mode=ParseMode.HTML, reply_markup=confirm_kb)
+    return
+
+
+@router.callback_query(F.data == "change_tariff_from_photo")
+async def cb_change_tariff_from_photo(cb: CallbackQuery):
+    uid = cb.from_user.id
+    user_tasks.pop(f"pending_{uid}", None)
+    await cb.answer()
+    await cb.message.delete()
+    tariff_kb = await get_tariff_keyboard()
+    settings = await get_settings(uid)
+    if TARIFF_IMAGE.exists():
+        try:
+            img = Image.open(TARIFF_IMAGE)
+            if max(img.size) > 1280:
+                img.thumbnail((1280, 1280), Image.LANCZOS)
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=90)
+                buf.seek(0)
+                photo_file = BufferedInputFile(file=buf.read(), filename="tarif.jpg")
+            else:
+                photo_file = FSInputFile(TARIFF_IMAGE)
+        except Exception:
+            photo_file = FSInputFile(TARIFF_IMAGE)
+        await cb.message.answer_photo(photo=photo_file, caption=t(settings, "choose_tariff"),
+                                      parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
+    else:
+        await cb.message.answer(t(settings, "choose_tariff"),
+                                parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
+
+
+@router.callback_query(F.data.startswith("confirm_photo_"))
+async def cb_confirm_photo(cb: CallbackQuery):
+    uid = cb.from_user.id
+    photo_file_id = user_tasks.pop(f"pending_{uid}", None)
+    if not photo_file_id:
+        await cb.answer("Rasm topilmadi, qayta yuboring." if (await get_settings(uid)).get("ui_lang") == "uz" else "Фото не найдено, отправьте снова.")
+        await cb.message.delete()
+        return
+    await cb.answer()
+    await cb.message.delete()
+
+    # Fake message yaratib handle_photo_process chaqirish
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
+    tariff = settings.get("tariff", 0)
+    price = get_tariff_price(tariff)
+    balance = await db.get_balance(uid)
+
+    # Balans tekshiruv
     if balance < price:
         if lang == "uz":
             text = (
                 f"❌ <b>Balans yetarli emas!</b>\n\n"
-                f"📦 Tarif: <b>{get_tariff_name(tariff, 'uz')}</b>\n"
                 f"💰 Narxi: <b>{price:,} so'm</b>\n"
-                f"💰 Balansingiz: <b>{balance:,} so'm</b>\n"
-                f"💰 Yetishmaydi: <b>{price - balance:,} so'm</b>\n\n"
-                "Balansni to'ldiring 👇"
+                f"💳 Balansingiz: <b>{balance:,} so'm</b>\n"
+                f"💰 Yetishmaydi: <b>{price - balance:,} so'm</b>"
             )
         else:
             text = (
                 f"❌ <b>Недостаточно средств!</b>\n\n"
-                f"📦 Тариф: <b>{get_tariff_name(tariff, 'ru')}</b>\n"
                 f"💰 Стоимость: <b>{price:,} сум</b>\n"
-                f"💰 Ваш баланс: <b>{balance:,} сум</b>\n"
-                f"💰 Не хватает: <b>{price - balance:,} сум</b>\n\n"
-                "Пополните баланс 👇"
+                f"💳 Баланс: <b>{balance:,} сум</b>\n"
+                f"💰 Не хватает: <b>{price - balance:,} сум</b>"
             )
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Balansni to'ldirish" if lang == "uz" else "💳 Пополнить баланс", callback_data="topup_start")],
+            [InlineKeyboardButton(text="💳 Balansni to'ldirish" if lang == "uz" else "💳 Пополнить баланс",
+                                  callback_data="topup_start")],
         ])
-        await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+        await cb.message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
         return
 
     if user_tasks.get(uid):
-        await message.answer(t(settings, "busy")); return
+        await cb.message.answer("⏳ Oldingi rasm hali tayyor bo'lmadi." if lang == "uz" else "⏳ Предыдущее фото обрабатывается.")
+        return
+
+    # Rasmni yuklab olish va process qilish
+    await process_photo(cb.message, uid, photo_file_id, settings)
+
+
+async def process_photo(message: types.Message, uid: int, photo_file_id: str, settings: dict):
+    """Rasmni qayta ishlash — confirm dan keyin chaqiriladi"""
+    lang = settings.get("ui_lang", "uz")
+    tariff = settings.get("tariff", 0)
+    text_lang = settings.get("text_lang", "ru")
+    price = get_tariff_price(tariff)
+
+    if user_tasks.get(uid):
+        await message.answer(t(settings, "busy"))
+        return
 
     user_tasks[uid] = True
-    text_lang = settings.get("text_lang", "ru")
-    user_msg_id = message.message_id
 
     stop = asyncio.Event()
     wait_msg = await message.answer(get_progress(settings, 0), parse_mode=ParseMode.HTML)
     progress = asyncio.create_task(update_progress(wait_msg, uid, stop))
 
     try:
-        photo = message.photo[-1]
-        file = await bot.get_file(photo.file_id)
+        file = await bot.get_file(photo_file_id)
         raw = await bot.download_file(file.file_path)
         image_bytes = raw.read()
         logger.info(f"Rasm: user={uid}, tariff={tariff}, bytes={len(image_bytes)}")
@@ -808,26 +906,21 @@ async def handle_photo(message: types.Message):
 
         # Balansdan yechish
         await db.deduct_balance(uid, price)
-        # Cache yangilash
         if uid in _settings_cache:
             _settings_cache[uid]["balance"] = await db.get_balance(uid)
         new_balance = await db.get_balance(uid)
         logger.info(f"Balans yechildi: user={uid}, -{price}, qoldi={new_balance}")
 
         # Buyurtma logi
-        tariff_name = get_tariff_name(tariff, "uz")
         uname = f"@{message.from_user.username}" if message.from_user.username else "username yo'q"
         await tg_log(
             f"🛒 <b>Yangi buyurtma</b>\n"
             f"👤 User: <code>{uid}</code> ({uname})\n"
-            f"📦 Tarif: {tariff_name}\n"
+            f"📦 Tarif: {get_tariff_name(tariff, 'uz')}\n"
             f"💰 Narx: {price:,} so'm\n"
             f"💳 Qolgan balans: {new_balance:,} so'm"
         )
 
-        # Foydalanuvchi rasmi va progress bar ni o'chirish
-        try: await bot.delete_message(chat_id=message.chat.id, message_id=user_msg_id)
-        except: pass
         try: await wait_msg.delete()
         except: pass
 

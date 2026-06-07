@@ -165,14 +165,13 @@ TEXTS = {
         # Progress
         "progress": [
             {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Mahsulot tahlil qilinmoqda..."},
-            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "💡 Professional infografik sotuvni 40% ga oshiradi!" },
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "💡 Professional infografik sotuvni 40% ga oshiradi!"},
             {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "📸 AI mahsulotga mos dizayn tanlaydi"},
             {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🏪 Rasm internet do'konlar standartiga mos bo'ladi"},
             {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "⏱️ Biroz kuting..."},
             {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📦 Natijalar tayyorlanmoqda..."},
             {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "✅ Deyarli tayyor!"},
         ],
-
     },
     "ru": {
         "welcome": (
@@ -217,13 +216,13 @@ TEXTS = {
         "btn_settings": "🌐 Сменить язык",
         "btn_help": "❓ Помощь",
         "progress": [
-            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара..."},
-            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "💡 Профессиональная инфографика помогает увеличить продажи до 40%."},
-            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "📸 ИИ подбирает дизайн, подходящий для вашего товара."},
-            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🏪 Изображение будет соответствовать стандартам маркетплейсов."},
-            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "⏱️ Пожалуйста, подождите..."},
-            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📦 Подготовка результатов..."},
-            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "✅ Почти готово!"},
+            {"bar": "▓▓░░░░░░░░", "pct": "15%", "stage": "🔍 Анализ товара...", "tip": "💡 Инфографика увеличивает продажи на 40%!"},
+            {"bar": "▓▓▓░░░░░░░", "pct": "25%", "stage": "✏️ Создание промпта...", "tip": "📸 ИИ подбирает стиль"},
+            {"bar": "▓▓▓▓▓░░░░░", "pct": "45%", "stage": "🎨 Генерация инфографики...", "tip": "🏪 Под стандарты Uzum Market"},
+            {"bar": "▓▓▓▓▓▓░░░░", "pct": "55%", "stage": "🖼 Рекламные фото...", "tip": "⏱ Подождите..."},
+            {"bar": "▓▓▓▓▓▓▓░░░", "pct": "70%", "stage": "✏️ Тексты карточки...", "tip": "📝 На 2 языках"},
+            {"bar": "▓▓▓▓▓▓▓▓░░", "pct": "85%", "stage": "📝 Полное описание...", "tip": "🎯 3000+ символов"},
+            {"bar": "▓▓▓▓▓▓▓▓▓░", "pct": "95%", "stage": "📦 Подготовка...", "tip": "✅ Почти готово!"},
         ],
     },
 }
@@ -246,7 +245,9 @@ def get_progress(settings: dict, step):
     tariff = settings.get("tariff", 0)
     tariff_name = get_tariff_name(tariff, lang)
     price = get_tariff_price(tariff)
-    return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name} ({price:,} so'm)\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}\n\n{s['tip']}"
+    tip = s.get("tip", "")
+    tip_line = f"\n\n{tip}" if tip else ""
+    return f"🎨 <b>Ishlanmoqda</b>  |  📦 {tariff_name} ({price:,} so'm)\n\n{s['bar']}  {s['pct']}\n\n{s['stage']}{tip_line}"
 
 def get_reply_keyboard(settings: dict):
     lang = settings.get("ui_lang", "uz")
@@ -471,7 +472,7 @@ async def cb_text(cb: CallbackQuery):
     if is_first_setup:
         bonus = get_tariff_price(1)  # 1-tarif narxi
         await db.add_balance(uid, bonus, "welcome_bonus")
-        name = cb.from_user.first_name or "Foydalanuvchi"
+        name = (cb.from_user.first_name or cb.from_user.username or "Foydalanuvchi").strip()
         if lang == "uz":
             bonus_text = (
                 f"🎉 <b>Xush kelibsiz, {name}!</b>\n\n"

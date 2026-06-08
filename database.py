@@ -35,8 +35,8 @@ async def init_db():
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id     BIGINT PRIMARY KEY,
-                ui_lang     VARCHAR(5)  DEFAULT 'uz',
-                text_lang   VARCHAR(5)  DEFAULT 'ru',
+                ui_lang     VARCHAR(5)  DEFAULT NULL,
+                text_lang   VARCHAR(5)  DEFAULT NULL,
                 tariff      INTEGER     DEFAULT 0,
                 balance     BIGINT      DEFAULT 0,
                 created_at  TIMESTAMP   DEFAULT NOW(),
@@ -54,7 +54,6 @@ async def init_db():
                 created_at          TIMESTAMP   DEFAULT NOW()
             )
         """)
-        # Tarif sozlamalari jadvali
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS tariff_settings (
                 tariff_id       INTEGER PRIMARY KEY,
@@ -65,7 +64,6 @@ async def init_db():
                 updated_at      TIMESTAMP    DEFAULT NOW()
             )
         """)
-        # Default tariflar (agar bo'sh bo'lsa)
         await conn.execute("""
             INSERT INTO tariff_settings (tariff_id, name_uz, name_ru, price)
             VALUES
@@ -81,15 +79,22 @@ async def init_db():
 # ── Foydalanuvchi sozlamalari ─────────────────────────────────────
 
 async def ensure_user(user_id: int):
+    """Foydalanuvchini DB ga qo'shish (agar yo'q bo'lsa). ui_lang/text_lang NULL qoladi."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO users (user_id) VALUES ($1)
+            INSERT INTO users (user_id, ui_lang, text_lang)
+            VALUES ($1, NULL, NULL)
             ON CONFLICT (user_id) DO NOTHING
         """, user_id)
 
 
-async def get_user_settings(user_id: int) -> dict:
+async def get_user_settings(user_id: int) -> dict | None:
+    """
+    Foydalanuvchi sozlamalarini qaytaradi.
+    Yangi user bo'lsa (DB da yo'q bo'lsa) — None qaytaradi.
+    Bu cmd_start da yangi/eski userni aniq ajratish uchun muhim.
+    """
     pool = await get_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -98,7 +103,7 @@ async def get_user_settings(user_id: int) -> dict:
         )
     if row:
         return dict(row)
-    return {"ui_lang": "uz", "text_lang": "ru", "tariff": 0, "balance": 0}
+    return None  # Yangi user — DB da yo'q
 
 
 async def set_user_setting(user_id: int, field: str, value):
@@ -182,7 +187,6 @@ async def save_transaction(data: dict):
 # ── Tarif sozlamalari (admin) ─────────────────────────────────────
 
 async def get_all_tariffs() -> list:
-    """Barcha tariflarni qaytaradi"""
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -214,7 +218,6 @@ async def update_tariff(tariff_id: int, name_uz: str, name_ru: str, price: int, 
 # ── Statistika (admin) ────────────────────────────────────────────
 
 async def get_stats() -> dict:
-    """Umumiy statistika"""
     pool = await get_pool()
     async with pool.acquire() as conn:
         total_users = await conn.fetchval("SELECT COUNT(*) FROM users")
@@ -222,11 +225,11 @@ async def get_stats() -> dict:
             "SELECT COUNT(*) FROM users WHERE DATE(created_at)=CURRENT_DATE"
         )
         total_revenue = await conn.fetchval(
-            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type='topup' AND status='completed'"
+            "SELECT COALESCE(SUM(amount), 0) FROM transactions WHERE type IN ('topup', 'bonus') AND status='completed'"
         )
         today_revenue = await conn.fetchval(
             "SELECT COALESCE(SUM(amount), 0) FROM transactions "
-            "WHERE type='topup' AND status='completed' AND DATE(created_at)=CURRENT_DATE"
+            "WHERE type IN ('topup', 'bonus') AND status='completed' AND DATE(created_at)=CURRENT_DATE"
         )
         total_orders = await conn.fetchval(
             "SELECT COUNT(*) FROM transactions WHERE type='deduct'"
@@ -234,7 +237,6 @@ async def get_stats() -> dict:
         today_orders = await conn.fetchval(
             "SELECT COUNT(*) FROM transactions WHERE type='deduct' AND DATE(created_at)=CURRENT_DATE"
         )
-        # Tarif bo'yicha buyurtmalar (deduct tranzaktsiyalari)
         tariff_stats = await conn.fetch("""
             SELECT t.tariff_id, t.name_uz, COUNT(tr.id) as orders,
                    COALESCE(SUM(tr.amount), 0) as revenue
@@ -243,18 +245,16 @@ async def get_stats() -> dict:
             GROUP BY t.tariff_id, t.name_uz
             ORDER BY t.tariff_id
         """)
-        # So'nggi 7 kun daromad
         daily_revenue = await conn.fetch("""
             SELECT DATE(created_at) as day,
                    COALESCE(SUM(amount), 0) as revenue,
                    COUNT(*) as orders
             FROM transactions
-            WHERE type='topup' AND status='completed'
+            WHERE type IN ('topup', 'bonus') AND status='completed'
               AND created_at >= NOW() - INTERVAL '7 days'
             GROUP BY DATE(created_at)
             ORDER BY day DESC
         """)
-        # So'nggi 10 ta tranzaktsiya
         recent_txns = await conn.fetch("""
             SELECT t.id, t.user_id, t.amount, t.type, t.status, t.created_at,
                    u.ui_lang
@@ -290,17 +290,24 @@ async def get_all_users(limit: int = 50, offset: int = 0) -> list:
 
 
 async def admin_set_balance(user_id: int, amount: int, admin_note: str = "admin"):
-    """Admin tomonidan balans o'rnatish (to'g'ridan-to'g'ri)"""
+    """Admin tomonidan balans o'rnatish — delta asosida tranzaktsiya yozadi"""
     await ensure_user(user_id)
     pool = await get_pool()
     async with pool.acquire() as conn:
         async with conn.transaction():
+            old_row = await conn.fetchrow(
+                "SELECT balance FROM users WHERE user_id=$1", user_id
+            )
+            old_balance = old_row["balance"] if old_row else 0
+            delta = amount - old_balance
+
             await conn.execute(
                 "UPDATE users SET balance=$1, updated_at=NOW() WHERE user_id=$2",
                 amount, user_id
             )
+            txn_type = "admin_topup" if delta >= 0 else "admin_deduct"
             await conn.execute("""
                 INSERT INTO transactions (user_id, amount, type, status, click_trans_id)
-                VALUES ($1, $2, 'topup', 'completed', $3)
-            """, user_id, amount, admin_note)
-    logger.info(f"Admin balans o'rnatdi: user={user_id}, balance={amount}")
+                VALUES ($1, $2, $3, 'completed', $4)
+            """, user_id, abs(delta), txn_type, admin_note)
+    logger.info(f"Admin balans o'rnatdi: user={user_id}, balance={amount}, delta={delta}")

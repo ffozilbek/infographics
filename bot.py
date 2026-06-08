@@ -435,9 +435,9 @@ async def cmd_start(msg: types.Message):
             else:
                 tariff_line = "\n⚠️ Тариф не выбран — нажмите 📦 Тарифы"
 
+        first_name = msg.from_user.first_name or msg.from_user.username or ""
+        name_part = f", {first_name}" if first_name else ""
         if lang == "uz":
-            first_name = msg.from_user.first_name or msg.from_user.username or ""
-            name_part = f", {first_name}" if first_name else ""
             greet = f"👋 <b>Xush kelibsiz{name_part}!</b>{tariff_line}\n\n📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
         else:
             greet = f"👋 <b>Добро пожаловать{name_part}!</b>{tariff_line}\n\n📸 Отправьте фото товара или используйте кнопки."

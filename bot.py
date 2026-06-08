@@ -129,7 +129,7 @@ async def get_tariff_keyboard() -> InlineKeyboardMarkup:
 # TILLAR
 # ══════════════════════════════════════════════════════════════════
 
-ADMIN_USERNAME = "t.me/karimovsherali"
+ADMIN_USERNAME = "karimovsherali"
 
 TEXTS = {
     "uz": {
@@ -156,7 +156,7 @@ TEXTS = {
             "🔹 💰 <b>Balans</b> — balansingizni ko'rish\n"
             "🔹 📋 <b>Namunalar</b> — namuna rasmlarni ko'rish\n"
             "🔹 🌐 <b>Tilni o'zgartirish</b>\n\n"
-            "📸 Mahsulot rasmini yuboring — bot ishlaydi!"
+            "📸 Mahsulot rasmini yuboring — bot ishlaydi!\n\n"
             f"🆘 Yordam kerak bo'lsa <a href='https://t.me/{ADMIN_USERNAME}'>admin</a> ga yozing."
         ),
         "done_infographic": "✅ <b>Infografik rasmlar tayyor!</b>",
@@ -209,7 +209,7 @@ TEXTS = {
             "🔹 💰 <b>Баланс</b> — проверить баланс\n"
             "🔹 📋 <b>Примеры</b> — посмотреть примеры\n"
             "🔹 🌐 <b>Сменить язык</b>\n\n"
-            "📸 Отправьте фото товара — бот начнёт работу!"
+            "📸 Отправьте фото товара — бот начнёт работу!\n\n"
             f"🆘 Если вам нужна помощь, напишите <a href='https://t.me/{ADMIN_USERNAME}'>администратору</a>."
         ),
         "done_infographic": "✅ <b>Инфографика готова!</b>",

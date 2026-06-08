@@ -274,7 +274,7 @@ async def tg_log(text: str):
         return
     try:
         await bot.send_message(
-            chat_id=LOG_CHAT_ID,
+            chat_id=int(LOG_CHAT_ID),
             text=text,
             parse_mode=ParseMode.HTML,
         )
@@ -436,9 +436,11 @@ async def cmd_start(msg: types.Message):
                 tariff_line = "\n⚠️ Тариф не выбран — нажмите 📦 Тарифы"
 
         if lang == "uz":
-            greet = f"👋 <b>Xush kelibsiz!</b>{tariff_line}\n\n📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
+            first_name = msg.from_user.first_name or msg.from_user.username or ""
+            name_part = f", {first_name}" if first_name else ""
+            greet = f"👋 <b>Xush kelibsiz{name_part}!</b>{tariff_line}\n\n📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."
         else:
-            greet = f"👋 <b>Добро пожаловать!</b>{tariff_line}\n\n📸 Отправьте фото товара или используйте кнопки."
+            greet = f"👋 <b>Добро пожаловать{name_part}!</b>{tariff_line}\n\n📸 Отправьте фото товара или используйте кнопки."
         await msg.answer(greet, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard(settings))
         return
 
@@ -463,7 +465,11 @@ async def cb_ui(cb: CallbackQuery):
 @router.callback_query(F.data.startswith("lang_text_"))
 async def cb_text(cb: CallbackQuery):
     uid = cb.from_user.id
-    is_first_setup = not bool((await get_settings(uid)).get("text_lang"))
+    # DB dan to'g'ridan-to'g'ri tekshirish (cache xato berishi mumkin)
+    pool = await db.get_pool()
+    async with pool.acquire() as conn:
+        db_row = await conn.fetchrow("SELECT text_lang FROM users WHERE user_id=$1", uid)
+    is_first_setup = db_row is None or not db_row.get("text_lang")
     await set_setting(uid, "text_lang", cb.data.replace("lang_text_", ""))
     await cb.answer()
 

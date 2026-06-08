@@ -282,6 +282,44 @@ async def tg_log(text: str):
         logger.warning(f"tg_log xatolik: {e}")
 
 
+class LoggingMiddleware(BaseMiddleware):
+    """Barcha xabar va callback larni kanalga yozadi"""
+
+    async def __call__(self, handler, event, data):
+        try:
+            user = None
+            text_info = ""
+
+            if isinstance(event, types.Message):
+                user = event.from_user
+                if event.text:
+                    text_info = f"💬 <b>Xabar:</b> {event.text[:80]}"
+                elif event.photo:
+                    text_info = "🖼 <b>Rasm yuborildi</b>"
+                elif event.document:
+                    text_info = "📎 <b>Fayl yuborildi</b>"
+                else:
+                    text_info = "📨 <b>Boshqa turdagi xabar</b>"
+
+            elif isinstance(event, types.CallbackQuery):
+                user = event.from_user
+                text_info = f"🔘 <b>Tugma:</b> <code>{event.data}</code>"
+
+            if user and text_info:
+                uid = user.id
+                name = user.full_name or user.username or "—"
+                uname = f"@{user.username}" if user.username else "username yo'q"
+                await tg_log(
+                    f"{text_info}\n"
+                    f"👤 {name} ({uname})\n"
+                    f"🆔 <code>{uid}</code>"
+                )
+        except Exception as e:
+            logger.warning(f"LoggingMiddleware xatolik: {e}")
+
+        return await handler(event, data)
+
+
 async def update_progress(wait_msg, uid, stop):
     step = 0
     while not stop.is_set():
@@ -469,7 +507,7 @@ async def cb_text(cb: CallbackQuery):
     pool = await db.get_pool()
     async with pool.acquire() as conn:
         db_row = await conn.fetchrow("SELECT text_lang FROM users WHERE user_id=$1", uid)
-    is_first_setup = db_row is None or not db_row.get("text_lang")
+    is_first_setup = db_row is None or not db_row["text_lang"]
     await set_setting(uid, "text_lang", cb.data.replace("lang_text_", ""))
     await cb.answer()
 
@@ -1082,6 +1120,8 @@ async def main():
     # Tariflarni DB dan yuklash
     await load_tariffs()
 
+    dp.message.middleware(LoggingMiddleware())
+    dp.callback_query.middleware(LoggingMiddleware())
     dp.include_router(router)
     await bot.set_my_commands([
         BotCommand(command="start", description="Boshlash / Запустить"),

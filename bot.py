@@ -25,7 +25,7 @@ from prompts import (
     gen_card_step1, gen_card_step2,
     set_client as set_prompts_client,
 )
-from aiogram import Bot, Dispatcher, Router, types, F
+from aiogram import Bot, Dispatcher, Router, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.types import (
     BufferedInputFile, InputMediaPhoto, FSInputFile,

@@ -37,8 +37,8 @@ async def init_db():
                 user_id     BIGINT PRIMARY KEY,
                 username    VARCHAR(64),
                 full_name   VARCHAR(128),
-                ui_lang     VARCHAR(5)  DEFAULT 'uz',
-                text_lang   VARCHAR(5)  DEFAULT 'ru',
+                ui_lang     VARCHAR(5),
+                text_lang   VARCHAR(5),
                 tariff      INTEGER     DEFAULT 0,
                 balance     BIGINT      DEFAULT 0,
                 created_at  TIMESTAMP   DEFAULT NOW(),
@@ -81,6 +81,11 @@ async def init_db():
         await conn.execute("""
             ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64);
             ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(128);
+        """)
+        # text_lang va ui_lang DEFAULT ni olib tashlash
+        await conn.execute("""
+            ALTER TABLE users ALTER COLUMN text_lang DROP DEFAULT;
+            ALTER TABLE users ALTER COLUMN ui_lang DROP DEFAULT;
         """)
     logger.info("✅ DB jadvallar tayyor")
 

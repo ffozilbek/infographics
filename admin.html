@@ -821,6 +821,11 @@
           id="balance-input"
           placeholder="Yangi balans (so'mda)"
         />
+        <input
+          type="text"
+          id="balance-note"
+          placeholder="Izoh (ixtiyoriy — foydalanuvchiga yuboriladi)"
+        />
         <div class="modal-btns">
           <button class="btn-cancel" onclick="closeModal()">Bekor</button>
           <button class="btn-confirm" onclick="saveBalance()">Saqlash</button>
@@ -1157,17 +1162,19 @@
 
       function closeModal() {
         document.getElementById("balance-modal").classList.remove("open");
+        document.getElementById("balance-note").value = "";
         modalUid = null;
       }
 
       async function saveBalance() {
         const amount = parseInt(document.getElementById("balance-input").value);
+        const note = document.getElementById("balance-note").value.trim();
         if (isNaN(amount) || amount < 0) {
           alert("To'g'ri summa kiriting!");
           return;
         }
         try {
-          await api("/users/" + modalUid + "/balance", "PUT", { amount });
+          await api("/users/" + modalUid + "/balance", "PUT", { amount, note });
           closeModal();
           loadUsers();
         } catch (e) {

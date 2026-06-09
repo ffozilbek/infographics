@@ -300,7 +300,46 @@ async def admin_set_user_balance(request: web.Request) -> web.Response:
         user_id = int(request.match_info["uid"])
         data = await request.json()
         amount = int(data["amount"])
+        note = data.get("note", "")
         await db.admin_set_balance(user_id, amount, "admin_panel")
+
+        # Foydalanuvchiga xabar yuborish
+        if _bot_instance:
+            try:
+                settings = await db.get_user_settings(user_id)
+                lang = settings.get("ui_lang", "uz")
+                if note:
+                    if lang == "uz":
+                        msg = (
+                            f"🎁 <b>Sizga sovg'a!</b>\n\n"
+                            f"💰 Hisobingiz <b>{amount:,} so'm</b> ga to'ldirildi.\n"
+                            f"📝 Izoh: {note}\n\n"
+                            f"✨ Endi yangi infografik yaratishingiz mumkin!"
+                        )
+                    else:
+                        msg = (
+                            f"🎁 <b>Вам подарок!</b>\n\n"
+                            f"💰 Ваш баланс пополнен на <b>{amount:,} сум</b>.\n"
+                            f"📝 Примечание: {note}\n\n"
+                            f"✨ Теперь вы можете создать новую инфографику!"
+                        )
+                else:
+                    if lang == "uz":
+                        msg = (
+                            f"🎁 <b>Sizga sovg'a!</b>\n\n"
+                            f"💰 Hisobingiz <b>{amount:,} so'm</b> ga to'ldirildi.\n\n"
+                            f"✨ Endi yangi infografik yaratishingiz mumkin!"
+                        )
+                    else:
+                        msg = (
+                            f"🎁 <b>Вам подарок!</b>\n\n"
+                            f"💰 Ваш баланс пополнен на <b>{amount:,} сум</b>.\n\n"
+                            f"✨ Теперь вы можете создать новую инфографику!"
+                        )
+                await _bot_instance.send_message(user_id, msg, parse_mode="HTML")
+            except Exception as e:
+                logger.warning(f"Admin gift notify error: {e}")
+
         return web.json_response({"ok": True})
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)

@@ -42,7 +42,8 @@ import database as db
 load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-LOG_CHAT_ID = os.getenv("LOG_CHAT_ID", "")  # Kanal yoki gruppa ID (-100xxxxxxxxxx)
+LOG_CHAT_ID = os.getenv("LOG_CHAT_ID", "")      # Log kanal ID (-100xxxxxxxxxx)
+ARCHIVE_CHAT_ID = os.getenv("ARCHIVE_CHAT_ID", "")  # Arxiv kanal ID (-100xxxxxxxxxx)
 if not TELEGRAM_BOT_TOKEN or not OPENAI_API_KEY:
     raise ValueError("TELEGRAM_BOT_TOKEN va OPENAI_API_KEY .env faylda bo'lishi kerak!")
 
@@ -322,6 +323,50 @@ class LoggingMiddleware(BaseMiddleware):
             logger.warning(f"LoggingMiddleware xatolik: {e}")
 
         return await handler(event, data)
+
+
+async def tg_archive_photo(photo_file_id: str, caption: str = ""):
+    """Arxiv kanalga rasm yuborish"""
+    if not ARCHIVE_CHAT_ID:
+        return
+    try:
+        await bot.send_photo(
+            chat_id=int(ARCHIVE_CHAT_ID),
+            photo=photo_file_id,
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.warning(f"tg_archive_photo xatolik: {e}")
+
+
+async def tg_archive_bytes(image_bytes: bytes, filename: str, caption: str = ""):
+    """Arxiv kanalga bytes dan rasm yuborish"""
+    if not ARCHIVE_CHAT_ID:
+        return
+    try:
+        await bot.send_photo(
+            chat_id=int(ARCHIVE_CHAT_ID),
+            photo=BufferedInputFile(file=image_bytes, filename=filename),
+            caption=caption,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.warning(f"tg_archive_bytes xatolik: {e}")
+
+
+async def tg_archive_text(text: str):
+    """Arxiv kanalga matn yuborish"""
+    if not ARCHIVE_CHAT_ID:
+        return
+    try:
+        await bot.send_message(
+            chat_id=int(ARCHIVE_CHAT_ID),
+            text=text,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as e:
+        logger.warning(f"tg_archive_text xatolik: {e}")
 
 
 async def update_progress(wait_msg, uid, stop):
@@ -971,6 +1016,36 @@ async def process_photo(message: types.Message, uid: int, photo_file_id: str, se
 
         try: await wait_msg.delete()
         except: pass
+
+        # ── Arxivga yuborish ─────────────────────────────────────
+        uname_str = f"@{message.from_user.username}" if message.from_user.username else str(uid)
+        name_str = message.from_user.full_name or uname_str
+        tariff_name = get_tariff_name(tariff, "uz")
+
+        # Original rasm
+        await tg_archive_photo(
+            photo_file_id,
+            caption=f"📥 <b>Original rasm</b>\n👤 {name_str} ({uname_str}) | 📦 {tariff_name}"
+        )
+        # Infografikalar
+        for i, img in enumerate(infographics, 1):
+            await tg_archive_bytes(img, f"infographic_{uid}_{i}.jpg",
+                caption=f"🖼 <b>Infografika {i}</b> | 👤 {name_str}" if i == 1 else "")
+        # Promo rasmlar
+        for i, img in enumerate(promos, 1):
+            await tg_archive_bytes(img, f"promo_{uid}_{i}.jpg",
+                caption=f"🎯 <b>Promo {i}</b> | 👤 {name_str}" if i == 1 else "")
+        # Kartochka matni
+        if card:
+            await tg_archive_text(
+                f"📝 <b>Kartochka matni</b> | 👤 {name_str} ({uname_str})\n\n"
+                f"🇺🇿 <b>Nomi:</b> {card.get('name_uz', '')}\n"
+                f"🇷🇺 <b>Название:</b> {card.get('name_ru', '')}\n\n"
+                f"🇺🇿 <b>Qisqa tavsif:</b>\n{card.get('short_uz', '')}\n\n"
+                f"🇷🇺 <b>Краткое описание:</b>\n{card.get('short_ru', '')}\n\n"
+                f"🇺🇿 <b>Xususiyatlar:</b>\n{card.get('feat_uz', '')}\n\n"
+                f"🇷🇺 <b>Характеристики:</b>\n{card.get('feat_ru', '')}"
+            )
 
         # Natijalar
         await send_images(message, infographics, t(settings, "done_infographic"), "infographic")

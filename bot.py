@@ -559,6 +559,7 @@ async def cb_text(cb: CallbackQuery):
     async with pool.acquire() as conn:
         db_row = await conn.fetchrow("SELECT text_lang FROM users WHERE user_id=$1", uid)
     is_first_setup = db_row is None or not db_row["text_lang"]
+    logger.info(f"cb_text: uid={uid}, db_row={db_row}, is_first_setup={is_first_setup}")
     await set_setting(uid, "text_lang", cb.data.replace("lang_text_", ""))
     await cb.answer()
 

@@ -35,6 +35,8 @@ async def init_db():
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 user_id     BIGINT PRIMARY KEY,
+                username    VARCHAR(64),
+                full_name   VARCHAR(128),
                 ui_lang     VARCHAR(5)  DEFAULT 'uz',
                 text_lang   VARCHAR(5)  DEFAULT 'ru',
                 tariff      INTEGER     DEFAULT 0,
@@ -75,18 +77,25 @@ async def init_db():
                 (4, 'To''liq paket',                 'Полный пакет',             25000)
             ON CONFLICT (tariff_id) DO NOTHING
         """)
+        # Mavjud DB ga username ustunlarini qo'shish (agar yo'q bo'lsa)
+        await conn.execute("""
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS username VARCHAR(64);
+            ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(128);
+        """)
     logger.info("✅ DB jadvallar tayyor")
 
 
 # ── Foydalanuvchi sozlamalari ─────────────────────────────────────
 
-async def ensure_user(user_id: int):
+async def ensure_user(user_id: int, username: str = None, full_name: str = None):
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute("""
-            INSERT INTO users (user_id) VALUES ($1)
-            ON CONFLICT (user_id) DO NOTHING
-        """, user_id)
+            INSERT INTO users (user_id, username, full_name) VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE
+            SET username = COALESCE($2, users.username),
+                full_name = COALESCE($3, users.full_name)
+        """, user_id, username, full_name)
 
 
 async def get_user_settings(user_id: int) -> dict:
@@ -224,12 +233,12 @@ async def get_stats() -> dict:
         total_revenue = await conn.fetchval(
             "SELECT COALESCE(SUM(amount), 0) FROM transactions "
             "WHERE type='topup' AND status='completed' "
-            "AND COALESCE(click_trans_id, '') NOT IN ('welcome_bonus', '')"
+            "AND COALESCE(click_trans_id, '') NOT IN ('welcome_bonus', 'admin_panel', '')"
         )
         today_revenue = await conn.fetchval(
             "SELECT COALESCE(SUM(amount), 0) FROM transactions "
             "WHERE type='topup' AND status='completed' AND DATE(created_at)=CURRENT_DATE "
-            "AND COALESCE(click_trans_id, '') NOT IN ('welcome_bonus', '')"
+            "AND COALESCE(click_trans_id, '') NOT IN ('welcome_bonus', 'admin_panel', '')"
         )
         total_orders = await conn.fetchval(
             "SELECT COUNT(*) FROM transactions WHERE type='deduct'"
@@ -284,7 +293,7 @@ async def get_all_users(limit: int = 50, offset: int = 0) -> list:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("""
-            SELECT user_id, ui_lang, tariff, balance, created_at
+            SELECT user_id, username, full_name, ui_lang, tariff, balance, created_at
             FROM users
             ORDER BY created_at DESC
             LIMIT $1 OFFSET $2

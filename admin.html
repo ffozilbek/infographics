@@ -757,6 +757,8 @@
               <thead>
                 <tr>
                   <th>User ID</th>
+                  <th>Ism</th>
+                  <th>Username</th>
                   <th>Til</th>
                   <th>Tarif</th>
                   <th>Balans</th>
@@ -931,6 +933,13 @@
 
       function fmt(n) {
         return Number(n).toLocaleString("uz-UZ");
+      }
+
+      function fmtDate(d) {
+        if (!d) return "—";
+        const dt = new Date(d);
+        const pad = (n) => String(n).padStart(2, "0");
+        return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
       }
 
       function renderStats(d) {
@@ -1124,16 +1133,18 @@
               (u) => `
     <tr>
       <td><code>${u.user_id}</code></td>
+      <td style="color:var(--text)">${u.full_name || "—"}</td>
+      <td style="color:var(--accent)">${u.username ? "@" + u.username : "—"}</td>
       <td><span class="badge badge-blue">${u.ui_lang?.toUpperCase() || "—"}</span></td>
       <td>${u.tariff ? tariffNames[u.tariff] || "#" + u.tariff : '<span class="badge badge-orange">tanlanmagan</span>'}</td>
       <td class="${u.balance > 0 ? "amount-green" : ""}">${fmt(u.balance)} so'm</td>
-      <td style="color:var(--muted)">${u.created_at ? new Date(u.created_at).toLocaleDateString("uz-UZ") : "—"}</td>
+      <td style="color:var(--muted)">${u.created_at ? fmtDate(u.created_at) : "—"}</td>
       <td><button class="refresh-btn" onclick="openBalanceModal(${u.user_id}, ${u.balance})">💰 Balans</button></td>
     </tr>
   `,
             )
             .join("") ||
-          '<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Foydalanuvchilar yo\'q</td></tr>';
+          '<tr><td colspan="8" style="color:var(--muted);text-align:center;padding:24px">Foydalanuvchilar yo\'q</td></tr>';
       }
 
       function openBalanceModal(uid, current) {
@@ -1191,7 +1202,7 @@
       <td class="${t.type === "topup" ? "amount-green" : "amount-red"}">${t.type === "topup" ? "+" : "-"}${fmt(t.amount)} so'm</td>
       <td><span class="badge ${t.type === "topup" ? "badge-green" : "badge-red"}">${t.type}</span></td>
       <td><span class="badge ${t.status === "completed" ? "badge-green" : "badge-orange"}">${t.status}</span></td>
-      <td style="color:var(--muted)">${new Date(t.created_at).toLocaleString("uz-UZ")}</td>
+      <td style="color:var(--muted)">${fmtDate(t.created_at)}</td>
     </tr>
   `,
             )

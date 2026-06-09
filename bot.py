@@ -489,12 +489,14 @@ async def send_card_texts(message, card, full_uz, full_ru):
 async def cmd_start(msg: types.Message):
     uid = msg.from_user.id
     settings = await get_settings(uid)
-    # Yangi user bo'lsa log
+    # DB dan tekshirish
     pool = await db.get_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow("SELECT created_at, updated_at FROM users WHERE user_id=$1", uid)
-    is_new = row is None or (row["created_at"] and row["updated_at"] and
-             abs((row["updated_at"] - row["created_at"]).total_seconds()) < 5)
+        db_row = await conn.fetchrow(
+            "SELECT ui_lang, text_lang, created_at, updated_at FROM users WHERE user_id=$1", uid
+        )
+    is_new = db_row is None or (db_row["created_at"] and db_row["updated_at"] and
+             abs((db_row["updated_at"] - db_row["created_at"]).total_seconds()) < 5)
     await db.ensure_user(uid, username=msg.from_user.username, full_name=msg.from_user.full_name)
     if is_new:
         uname = f"@{msg.from_user.username}" if msg.from_user.username else "username yo'q"
@@ -505,8 +507,8 @@ async def cmd_start(msg: types.Message):
             f"Ism: {name}\n"
             f"Username: {uname}"
         )
-    # Til allaqachon tanlangan bo'lsa — to'g'ridan-to'g'ri reply keyboard
-    if settings.get("ui_lang") and settings.get("text_lang"):
+    # Til DB da saqlangan bo'lsa — greeting ko'rsatish
+    if db_row is not None and db_row["text_lang"]:
         lang = settings.get("ui_lang", "uz")
         tariff = settings.get("tariff", 0)
         if tariff:
@@ -522,7 +524,7 @@ async def cmd_start(msg: types.Message):
             else:
                 tariff_line = "\n⚠️ Тариф не выбран — нажмите 📦 Тарифы"
 
-        first_name = msg.from_user.first_name or msg.from_user.username or ""
+        first_name = (msg.from_user.first_name or "").strip()
         name_part = f", {first_name}" if first_name else ""
         if lang == "uz":
             greet = f"👋 <b>Xush kelibsiz{name_part}!</b>{tariff_line}\n\n📸 Mahsulot rasmini yuboring yoki tugmalardan foydalaning."

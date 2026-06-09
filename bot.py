@@ -118,6 +118,8 @@ async def get_tariff_keyboard() -> InlineKeyboardMarkup:
 # TILLAR
 # ══════════════════════════════════════════════════════════════════
 
+ADMIN_USERNAME = "karimovsherali"
+
 TEXTS = {
     "uz": {
         "welcome": (
@@ -132,7 +134,7 @@ TEXTS = {
         "tariff_set": "✅ <b>Tarif tanlandi: {name}</b>\n💰 Narxi: <b>{price} so'm</b>",
         "busy": "⏳ Oldingi rasmingiz hali tayyor bo'lmadi. Kuting...",
         "error": "❌ <b>Xatolik yuz berdi</b>",
-        "error_billing": "💳 OpenAI hisobida mablag' yetarli emas.",
+        "error_billing": "🪲 Texnik xatolik yuz berdi. Adminlar buni tez orada to'g'irlaydi. Nosozlik uchun uzr so'raymiz!",
         "error_rate": "⏱ Juda ko'p so'rov. 1 daqiqadan keyin urinib ko'ring.",
         "error_safety": "🚫 Rasm safety filtriga tushdi. Boshqa rasm yuboring.",
         "error_copyright": "⚠️ <b>Litsenziyalangan personaj aniqlandi:</b> <code>{keyword}</code>\n\nBoshqa rasm yuboring.",
@@ -143,7 +145,8 @@ TEXTS = {
             "🔹 💰 <b>Balans</b> — balansingizni ko'rish\n"
             "🔹 📋 <b>Namunalar</b> — namuna rasmlarni ko'rish\n"
             "🔹 🌐 <b>Tilni o'zgartirish</b>\n\n"
-            "📸 Mahsulot rasmini yuboring — bot ishlaydi!"
+            "📸 Mahsulot rasmini yuboring — bot ishlaydi!\n\n"
+             f"🆘 Yordam kerak bo'lsa <a href='https://t.me/{ADMIN_USERNAME}'>admin</a> ga yozing."
         ),
         "done_infographic": "✅ <b>Infografik rasmlar tayyor!</b>",
         "done_promo": "✅ <b>Tavsif rasmlari tayyor!</b>",
@@ -186,7 +189,7 @@ TEXTS = {
         "tariff_set": "✅ <b>Тариф выбран: {name}</b>\n💰 Стоимость: <b>{price} сум</b>",
         "busy": "⏳ Предыдущее фото обрабатывается...",
         "error": "❌ <b>Произошла ошибка</b>",
-        "error_billing": "💳 Недостаточно средств на счёте OpenAI.",
+        "error_billing": "🪲 Произошла техническая ошибка. Администраторы скоро её исправят. Приносим извинения за неудобства.",
         "error_rate": "⏱ Слишком много запросов.",
         "error_safety": "🚫 Фото заблокировано фильтром.",
         "error_copyright": "⚠️ <b>Лицензированный персонаж:</b> <code>{keyword}</code>",
@@ -197,7 +200,8 @@ TEXTS = {
             "🔹 💰 <b>Баланс</b> — проверить баланс\n"
             "🔹 📋 <b>Примеры</b> — посмотреть примеры\n"
             "🔹 🌐 <b>Сменить язык</b>\n\n"
-            "📸 Отправьте фото товара — бот начнёт работу!"
+            "📸 Отправьте фото товара — бот начнёт работу!\n\n"
+             f"🆘 Если вам нужна помощь, напишите <a href='https://t.me/{ADMIN_USERNAME}'>администратору</a>."
         ),
         "done_infographic": "✅ <b>Инфографика готова!</b>",
         "done_promo": "✅ <b>Рекламные фото готовы!</b>",

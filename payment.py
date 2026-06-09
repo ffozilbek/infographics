@@ -47,7 +47,7 @@ def generate_payment_link(user_id: int, amount: int) -> str:
         f"&merchant_id={CLICK_MERCHANT_ID}"
         f"&amount={amount}"
         f"&transaction_param={user_id}"
-        f"&return_url=https://t.me/yorqinai_bot"
+        f"&return_url=https://t.me/testuzum_bot"
     )
     return url
 
@@ -237,10 +237,10 @@ async def admin_stats(request: web.Request) -> web.Response:
         # datetime serialization
         for r in stats.get("daily_revenue", []):
             if hasattr(r.get("day"), "isoformat"):
-                r["day"] = r["day"].isoformat()
+                r["day"] = r["day"].isoformat() + "Z"
         for r in stats.get("recent_txns", []):
             if hasattr(r.get("created_at"), "isoformat"):
-                r["created_at"] = r["created_at"].isoformat()
+                r["created_at"] = r["created_at"].isoformat() + "Z"
         return web.json_response(stats)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -253,7 +253,7 @@ async def admin_get_tariffs(request: web.Request) -> web.Response:
         tariffs = await db.get_all_tariffs()
         for t in tariffs:
             if hasattr(t.get("updated_at"), "isoformat"):
-                t["updated_at"] = t["updated_at"].isoformat()
+                t["updated_at"] = t["updated_at"].isoformat() + "Z"
         return web.json_response(tariffs)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)
@@ -285,9 +285,9 @@ async def admin_get_users(request: web.Request) -> web.Response:
         users = await db.get_all_users(limit=100)
         for u in users:
             if hasattr(u.get("created_at"), "isoformat"):
-                u["created_at"] = u["created_at"].isoformat()
+                u["created_at"] = u["created_at"].isoformat() + "Z"
             if hasattr(u.get("updated_at"), "isoformat"):
-                u["updated_at"] = u["updated_at"].isoformat()
+                u["updated_at"] = u["updated_at"].isoformat() + "Z"
         return web.json_response(users)
     except Exception as e:
         return web.json_response({"error": str(e)}, status=500)

@@ -47,7 +47,7 @@ def generate_payment_link(user_id: int, amount: int) -> str:
         f"&merchant_id={CLICK_MERCHANT_ID}"
         f"&amount={amount}"
         f"&transaction_param={user_id}"
-        f"&return_url=https://t.me/testuzum_bot"
+        f"&return_url=https://t.me/yorqinai_bot"
     )
     return url
 

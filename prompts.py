@@ -65,6 +65,9 @@ Return ONLY structured output in this exact format:
 - Decorative elements suitable for this product:
 
 7. Headline Concept (in TARGET LANGUAGE, customer-focused, 2-4 words):
+   GRAMMAR: must be a complete, grammatically valid phrase in the target language.
+   For Uzbek: a verbless statement takes the NOMINATIVE case — never attach -ni / -ga / -da / -dan
+   to the subject noun. WRONG: "Suvni har doim tayyor". RIGHT: "Suv har doim tayyor".
 
 RULES:
 - NEVER add brand names unless clearly visible on the product itself
@@ -147,6 +150,21 @@ def get_infographic_prompt_system(text_lang, allow_brand=False):
         lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
         banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
         copywriting_rules = """
+UZBEK GRAMMAR — HARD REQUIREMENT (check EVERY line before output):
+1. CASE SUFFIXES: a verbless nominal statement uses the NOMINATIVE (bosh kelishik).
+   Do NOT attach -ni / -ga / -da / -dan / -ning to the subject when there is no verb.
+   WRONG: "Suvni har doim tayyor"   RIGHT: "Suv har doim tayyor"
+   WRONG: "Kiyimni tez quriydi"     RIGHT: "Kiyim tez quriydi"
+   -ni is ONLY valid with a real verb: "Suvni iching", "Kiyimni yuving".
+2. SUBJECT-PREDICATE AGREEMENT: third person singular predicate takes -adi / -ydi.
+   WRONG: "Oyoq charchamaysiz"      RIGHT: "Oyoq charchamaydi"
+3. LATIN APOSTROPHES: use o' and g' (with apostrophe), never o` / ģ / ŏ.
+   Correct: "qulaylik", "ko'rinish", "o'lcham", "yog'och", "bo'yicha".
+4. NO word-by-word English calques. If the phrase cannot be said out loud
+   naturally by an Uzbek speaker, rewrite it from scratch.
+5. Headline may be ALL CAPS, but the grammar underneath must still be valid —
+   capitalisation never excuses a wrong suffix.
+
 UZBEK MARKETPLACE COPYWRITING — STRICTLY ENFORCE:
 The feature titles and descriptions MUST sound like a native Uzbek marketplace seller wrote them.
 DO NOT translate from English. Think in Uzbek from the start.
@@ -175,6 +193,14 @@ If NO → rewrite."""
         lang_instruction = "ALL text on the infographic must be in RUSSIAN language with PERFECT spelling."
         banned = 'BANNED: "акция", "бесплатно", "скидка", "топ", "хит", "новинка", "лучший", "дёшево".'
         copywriting_rules = """
+RUSSIAN GRAMMAR — HARD REQUIREMENT (check EVERY line before output):
+1. CASE: a verbless nominal statement uses the NOMINATIVE.
+   WRONG: "Воду всегда готова"   RIGHT: "Вода всегда готова"
+2. AGREEMENT: adjective/predicate must agree with the noun in gender and number.
+   WRONG: "Вода горячий"         RIGHT: "Вода горячая"
+3. Use ё where required, no Latin letters mixed into Cyrillic words.
+4. NO word-by-word English calques — rewrite unnatural phrases from scratch.
+
 RUSSIAN MARKETPLACE COPYWRITING — STRICTLY ENFORCE:
 The feature titles and descriptions MUST sound like a native Russian Wildberries/Ozon seller wrote them.
 DO NOT translate from English. Think in Russian from the start.
@@ -234,7 +260,9 @@ Design details:
 Text:
 {lang_instruction}
 - Put every text element in "quotes" for accurate rendering
-- Keep SHORT: 2-4 words titles, 5-8 words descriptions
+- Keep SHORT: 2-4 words titles (HARD LIMIT — 4 words max, never 5+), 5-8 words descriptions
+- A feature title must fit on ONE or TWO lines. If it needs 3+ lines, it is too long — cut it down
+- Move any extra meaning into the description line below, not into the title
 - Headline: ALWAYS in ALL CAPS (e.g., "SPORT POYABZAL", "TEZKOR BLENDER")
 - Feature titles and descriptions: Sentence case (first letter capital only)
 - NO emoji in image text
@@ -250,7 +278,41 @@ Layout (3:4 portrait):
 - Headline top-left, large bold text
 - Subheadline below headline, smaller
 - Features list on the left side, vertically arranged
-- Badge (if applicable) on the right side
+- Badge block (if applicable) on the right side: 1-3 spec badges stacked VERTICALLY
+  inside one rounded container, separated by thin divider lines
+- Each badge: large number + unit on top, small label underneath
+- If the product is sold in SEVERAL size/volume options, give EACH option its own badge
+  (e.g. "886 L / 183x51 sm" and "3853 L / 305x76 sm") — never merge them into one line
+
+⚠️ BADGE LABELS — NEVER INVENT MEANING:
+- A badge label must state ONLY what the source data actually says.
+- If two volumes are listed as ALTERNATIVE SIZE OPTIONS of the same product, both badges
+  describe the SAME kind of measurement. Label them identically (e.g. both "SUV HAJMI"),
+  or label each with its physical size, or use no label at all.
+- FORBIDDEN: inventing two DIFFERENT meanings for two option values.
+  WRONG: "886 L / SUV HAJMI" + "3853 L / TO'LIQ HAJMI"  ← fabricated distinction
+  RIGHT: "886 L / 183x51 SM" + "3853 L / 305x76 SM"
+  RIGHT: "886 L" + "3853 L" with a single shared caption "HAJMI TANLANADI"
+- If you do not know what a number means, print the number with its unit and NO label.
+  Never guess a label to fill the space.
+
+⚠️ BADGE VALUES — NEVER DERIVE, ONLY COPY:
+- A badge may contain ONLY a value that is written EXPLICITLY in the analysis or in the
+  user's text. Copy it, never compute it.
+- Model codes, article numbers, part numbers and SKUs are IDENTIFIERS, NOT specs.
+  NEVER decode them into a spec value, even if the digits look meaningful.
+  WRONG: user wrote "Artel 3216 E, 3618 E, 4218 E, 32L va 36L" -> badges "32 L", "36 L", "42 L"
+         (42 was invented by reading the model code "4218 E" — forbidden)
+  RIGHT: badges "32 L", "36 L" only — those are the volumes the user actually stated
+- If the count of model codes does not match the count of stated specs, DO NOT balance them.
+  Show only what was stated and leave the rest out.
+- Never round, convert, average or extrapolate a number.
+
+⚠️ BADGE CAPTION — WRITE IT ONCE:
+- When several badges share the same caption, print that caption ONCE for the whole block
+  (above or below the stack), never repeated on every badge.
+  WRONG: "32 L / HAJMI TANLANADI", "36 L / HAJMI TANLANADI", "42 L / HAJMI TANLANADI"
+  RIGHT: caption "HAJMI TANLANADI" once, then the values "32 L" and "36 L" beneath it
 - Clean bottom section with closing tagline
 
 Extras:
@@ -280,6 +342,187 @@ CRITICAL RULES:
 """
 
 
+# ══════════════════════════════════════════════════════════════════
+# GRAMMATIKA TEKSHIRUVI (rasmga tushadigan matnlar uchun)
+# ══════════════════════════════════════════════════════════════════
+# Sabab: prompt yozadigan model o'zbekcha matnni ba'zan noto'g'ri kelishikda
+# beradi (masalan "SUVNI HAR DOIM TAYYOR" — fe'l yo'q, demak bosh kelishik
+# kerak edi). gpt-image-2 esa berilgan matnni so'zma-so'z chizadi, ya'ni xato
+# to'g'ridan-to'g'ri rasmga tushib qoladi. Shuning uchun rasm generatsiyasidan
+# OLDIN qo'shtirnoq ichidagi barcha matnlarni alohida tekshirib chiqamiz.
+
+_QUOTED_RE = re.compile(r'"([^"\n]{2,90})"')
+
+PROOFREAD_SYSTEM = {
+    "uz": """Sen o'zbek tili (lotin yozuvi) bo'yicha professional korrektorsan.
+Senga marketpleys infografikasiga chizib qo'yiladigan qisqa matnlar ro'yxati beriladi.
+Har birini grammatik jihatdan to'g'irlab, XUDDI SHU FORMATDA qaytar.
+
+TEKSHIRADIGAN XATOLAR:
+1. Kelishik qo'shimchalari. Fe'lsiz, holat bildiruvchi gapda ot BOSH KELISHIKDA bo'ladi —
+   -ni / -ga / -da / -dan / -ning qo'shimchalari ortiqcha.
+   XATO: "SUVNI HAR DOIM TAYYOR"  ->  TO'G'RI: "SUV HAR DOIM TAYYOR"
+   XATO: "Kiyimni tez quriydi"    ->  TO'G'RI: "Kiyim tez quriydi"
+   -ni faqat haqiqiy fe'l bilan keladi: "Suvni iching" — bu to'g'ri.
+2. Ega va kesim moslashuvi: "Oyoq charchamaysiz" -> "Oyoq charchamaydi".
+3. Apostroflar: o' va g' to'g'ri yozilsin (o` , ģ , ŏ emas).
+4. Imlo xatolari va so'zma-so'z tarjima hidi keladigan g'aliz iboralar.
+
+QAT'IY QOIDALAR:
+- Ma'noni O'ZGARTIRMA, yangi so'z QO'SHMA, matnni uzaytirma yoki qisqartirma.
+- ⚠️ HARF REGISTRINI MUTLAQO O'ZGARTIRMA. Kirish matni qanday yozilgan bo'lsa,
+  javob ham AYNAN shunday yozilsin. Kichik harfni katta harfga aylantirma,
+  kattasini kichikka aylantirma. Bu sening vazifang EMAS.
+  Kirish: "Oson o'rnatish"  ->  Javob: "Oson o'rnatish"  (BUZILMASIN)
+  XATO javob: "OSON O'RNATISH"
+- ⚠️ APOSTROFNI O'ZBOSHIMCHALIK BILAN QO'SHMA. Ayniqsa quyidagi juftliklarga
+  e'tibor ber — ular BUTUNLAY boshqa ma'no beradi:
+    olish  (получение, dam olish)   ≠   o'lish  (смерть)
+    olim   (olim, ilmiy xodim)      ≠   o'lim   (o'lim)
+    oldi   (oldi)                   ≠   o'ldi   (vafot etdi)
+  "dam olish" HAR DOIM apostrofsiz yoziladi. "dam o'lish" — og'ir xato.
+- Raqam, o'lchov birligi, model kodi, brend nomi (masalan "1350 BT", "LM-TE2503",
+  "0.5 L/soat") — TEGMA, o'zgarishsiz qaytar.
+- Matn o'zbekcha bo'lmasa (inglizcha dizayn izohi, ruscha matn) — o'zgarishsiz qaytar.
+- Matn allaqachon to'g'ri bo'lsa — aynan o'zini qaytar.
+
+JAVOB FORMATI: faqat raqamlangan qatorlar, boshqa hech narsa yozma.
+Kirish nechta qator bo'lsa, chiqish ham AYNAN shuncha qator bo'lsin.
+1. <to'g'irlangan matn>
+2. <to'g'irlangan matn>""",
+
+    "ru": """Ты профессиональный корректор русского языка.
+Тебе даётся список коротких текстов, которые будут напечатаны на инфографике маркетплейса.
+Исправь грамматику и верни В ТОМ ЖЕ ФОРМАТЕ.
+
+ЧТО ПРОВЕРЯТЬ:
+1. Падеж: в предложении без глагола существительное стоит в ИМЕНИТЕЛЬНОМ падеже.
+   НЕВЕРНО: "ВОДУ ВСЕГДА ГОТОВА"  ->  ВЕРНО: "ВОДА ВСЕГДА ГОТОВА"
+2. Согласование в роде и числе: "Вода горячий" -> "Вода горячая".
+3. Опечатки, пропущенные ё, латиница внутри кириллических слов.
+4. Кальки с английского — переписать естественно.
+
+СТРОГИЕ ПРАВИЛА:
+- НЕ меняй смысл, НЕ добавляй слов, не удлиняй и не сокращай текст.
+- Если текст В ВЕРХНЕМ РЕГИСТРЕ — ответ тоже в верхнем регистре.
+- Числа, единицы измерения, коды моделей, названия брендов ("1350 Вт",
+  "LM-TE2503") — НЕ ТРОГАЙ.
+- Если текст не на русском (английская дизайн-инструкция) — верни без изменений.
+- Если текст уже корректен — верни его как есть.
+
+ФОРМАТ ОТВЕТА: только нумерованные строки, ничего больше.
+Сколько строк на входе — РОВНО столько же на выходе.
+1. <исправленный текст>
+2. <исправленный текст>""",
+}
+
+
+# Apostrof qo'shilishi so'zning ma'nosini butunlay o'zgartiradigan juftliklar.
+# Chapdagi — to'g'ri so'z, o'ngdagi — apostrof qo'shilgan XATO varianti.
+_DANGEROUS_PAIRS = [
+    ("olish", "o'lish"),
+    ("olim", "o'lim"),
+    ("oldi", "o'ldi"),
+    ("oladi", "o'ladi"),
+    ("olgan", "o'lgan"),
+    ("olsin", "o'lsin"),
+    ("olamiz", "o'lamiz"),
+]
+
+
+def _has_dangerous_apostrophe(old_t: str, new_t: str) -> bool:
+    """Korrektor xavfli apostrof qo'shib yubordimi?"""
+    o, n = old_t.lower(), new_t.lower()
+    for safe, danger in _DANGEROUS_PAIRS:
+        if danger in n and danger not in o:
+            return True
+    return False
+
+
+def proofread_image_text(prompt: str, text_lang: str) -> str:
+    """Promptdagi qo'shtirnoq ichidagi matnlarni grammatik tekshiruvdan o'tkazadi.
+
+    Xatolik yuz bersa original promptni o'zgarishsiz qaytaradi (fail-open) —
+    generatsiya hech qachon proofread tufayli to'xtab qolmasin.
+    """
+    if not prompt:
+        return prompt
+
+    # Takrorlanmaydigan, tartibi saqlangan ro'yxat
+    seen, items = set(), []
+    for m in _QUOTED_RE.finditer(prompt):
+        t = m.group(1).strip()
+        if not t or t in seen:
+            continue
+        # Sof raqam/o'lchov — tekshirishga hojat yo'q
+        if not re.search(r"[A-Za-z\u0400-\u04FF]{3,}", t):
+            continue
+        seen.add(t)
+        items.append(t)
+
+    if not items:
+        return prompt
+
+    numbered = "\n".join(f"{i + 1}. {t}" for i, t in enumerate(items))
+    try:
+        r = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": PROOFREAD_SYSTEM.get(text_lang, PROOFREAD_SYSTEM["uz"])},
+                {"role": "user", "content": numbered},
+            ],
+            max_tokens=1200, temperature=0,
+        )
+        raw = r.choices[0].message.content.strip()
+    except Exception as e:
+        logger.warning(f"proofread_image_text xatolik: {e} — original prompt ishlatiladi")
+        return prompt
+
+    fixed = []
+    for line in raw.splitlines():
+        line = line.strip()
+        m = re.match(r"^\d+\s*[.)]\s*(.+)$", line)
+        if m:
+            fixed.append(m.group(1).strip().strip('"'))
+
+    # Qatorlar soni mos kelmasa — ishonchsiz, tegmaymiz
+    if len(fixed) != len(items):
+        logger.warning(
+            f"proofread: qator soni mos emas ({len(fixed)} != {len(items)}) — o'zgarishsiz qoldirildi"
+        )
+        return prompt
+
+    changed = 0
+    for old_t, new_t in zip(items, fixed):
+        if not new_t or new_t == old_t:
+            continue
+
+        # (a) Uzunlik keskin o'zgargan — model matnni qayta yozib yuborgan
+        if abs(len(new_t) - len(old_t)) > max(12, len(old_t) * 0.5):
+            logger.warning(f"proofread RAD: '{old_t}' -> '{new_t}' (uzunlik farqi)")
+            continue
+
+        # (b) Faqat harf registri o'zgargan — bu grammatik tuzatish emas.
+        #     Registrni infografika prompti belgilaydi, korrektor emas.
+        if new_t.lower() == old_t.lower():
+            logger.warning(f"proofread RAD: '{old_t}' -> '{new_t}' (faqat registr)")
+            continue
+
+        # (c) Xavfli apostrof qo'shilishi. Masalan "dam olish" -> "dam o'lish".
+        #     Model registrni o'zgartirayotganda shu xatoni qiladi va natija
+        #     grammatik jihatdan to'g'ri, lekin ma'no jihatdan halokatli bo'ladi.
+        if _has_dangerous_apostrophe(old_t, new_t):
+            logger.warning(f"proofread RAD: '{old_t}' -> '{new_t}' (xavfli apostrof)")
+            continue
+
+        prompt = prompt.replace(f'"{old_t}"', f'"{new_t}"')
+        changed += 1
+        logger.info(f"proofread tuzatdi: '{old_t}' -> '{new_t}'")
+
+    logger.info(f"proofread: {len(items)} matn tekshirildi, {changed} ta tuzatildi")
+    return prompt
+
+
 def write_infographic_prompt(analysis, text_lang, allow_brand=False, user_title=None, user_features=None):
     lang_name = "Uzbek" if text_lang == "uz" else "Russian"
     user_override = ""
@@ -292,9 +535,21 @@ def write_infographic_prompt(analysis, text_lang, allow_brand=False, user_title=
             f"product type + its key selling feature (e.g. from 'suvga chidamli podvodka Dip Eyeliner Black, "
             f"5.1 ml' → headline could be 'SUVGA CHIDAMLI PODVODKA')\n"
             f"- SUBTITLE (smaller text under/near the headline): brand name and/or model code, if present "
-            f"(e.g. 'DIP EYELINER BLACK' or 'AVL-CM1080')\n"
-            f"- BADGE (small circular/corner badge, like a spec callout — same style as e.g. '108 MP'): any "
-            f"numeric spec such as volume/size/capacity, if present (e.g. '5.1 ML')\n"
+            f"(e.g. 'DIP EYELINER BLACK' or 'AVL-CM1080'). Keep it to ONE line — if the user listed "
+            f"several model codes, show the brand plus at most two codes, or just the brand and product "
+            f"line; do not dump the entire raw string into the subtitle\n"
+            f"- BADGE(S) (small corner badge block, like a spec callout — same style as e.g. '108 MP'): "
+            f"numeric specs such as volume/size/capacity, if present (e.g. '5.1 ML'). If the text lists "
+            f"SEVERAL size or volume options (e.g. '886 l va 3853 l', '183x51 sm yoki 305x76 sm'), render "
+            f"EACH option as its OWN badge stacked vertically — max 3 — instead of cramming them into one "
+            f"badge or into the headline. These are ALTERNATIVE VARIANTS the buyer chooses between, NOT "
+            f"different measurements of one unit — so do NOT invent a distinct label for each "
+            f"(never 'water volume' vs 'total volume'); write the shared caption ONCE for the whole "
+            f"badge block instead of repeating it on each badge. CRITICAL: use ONLY the spec values "
+            f"literally present in the user's text — model codes / article numbers (e.g. '3216 E', "
+            f"'4218 E', 'LM-TE2503') are identifiers, NEVER decode digits from them into a volume, "
+            f"size or wattage. If there are more model codes than stated specs, that is fine — show "
+            f"only the stated specs\n"
             f"Only include a subtitle or badge if the user's text actually contains that kind of information — "
             f"don't invent one. Preserve the original meaning, just distribute it across headline/subtitle/badge "
             f"instead of one long line. IMPORTANT: all of this text MUST be entirely in {lang_name} — if the "
@@ -319,6 +574,7 @@ def write_infographic_prompt(analysis, text_lang, allow_brand=False, user_title=
     )
     prompt = r.choices[0].message.content.strip()
     logger.info(f"Infographic prompt: {len(prompt)} chars")
+    prompt = proofread_image_text(prompt, text_lang)
     return prompt
 
 
@@ -434,6 +690,7 @@ Both prompts:
     parts = re.split(r'---PROMPT2---|---', raw)
     prompts = [p.strip() for p in parts if p.strip()]
     logger.info(f"Promo prompts: {len(prompts)} generated")
+    prompts = [proofread_image_text(p, text_lang) for p in prompts]
     return prompts[:2] if len(prompts) >= 2 else [prompts[0], prompts[0]] if prompts else ["", ""]
 # ▲▲▲ PATCH 3 end ▲▲▲
 
@@ -766,9 +1023,18 @@ def translate_user_text(text: str, target_lang: str) -> str:
     if not text:
         return text
     target_name = "Uzbek (Latin script)" if target_lang == "uz" else "Russian"
+    grammar_note = (
+        ' The result must be grammatically correct Uzbek: in a verbless nominal phrase the noun '
+        'stays in the nominative case — never attach -ni / -ga / -da to it '
+        '(WRONG: "Suvni har doim tayyor", RIGHT: "Suv har doim tayyor"). '
+        "Use proper Latin apostrophes: o' and g'."
+        if target_lang == "uz" else
+        ' The result must be grammatically correct Russian (correct case and gender agreement).'
+    )
     prompt = (
         f'Translate the following product-related text into {target_name}. '
-        f'If it is already in {target_name}, just clean it up slightly (fix typos) and return as-is. '
+        f'If it is already in {target_name}, just clean it up slightly (fix typos) and return as-is.'
+        f'{grammar_note} '
         f'Return ONLY the translated text, nothing else — no quotes, no explanation, no original text:\n\n{text}'
     )
     try:

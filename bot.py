@@ -17,12 +17,18 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 
 from dotenv import load_dotenv
+load_dotenv()  # Bu yerda chaqirilishi SHART — chunki quyidagi import'lar
+                # (prompts, payment, database) modul yuklanganda darhol
+                # os.getenv() bilan .env qiymatlarini o'qiydi. Agar load_dotenv()
+                # keyin chaqirilsa, o'sha modullar bo'sh qiymat bilan qoladi.
+
 from prompts import (
     analyze_product, check_copyright,
     get_infographic_prompt_system, write_infographic_prompt,
     write_promo_prompts,
     gen_infographics_parallel, gen_promos_parallel,
     gen_card_step1, gen_card_step2,
+    validate_user_text, translate_user_text,
     set_client as set_prompts_client,
 )
 from aiogram import Bot, Dispatcher, Router, types, F, BaseMiddleware
@@ -39,7 +45,6 @@ from aiohttp import web
 import payment
 import database as db
 
-load_dotenv()
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 LOG_CHAT_ID = os.getenv("LOG_CHAT_ID", "")      # Log kanal ID (-100xxxxxxxxxx)
@@ -120,6 +125,8 @@ async def get_tariff_keyboard() -> InlineKeyboardMarkup:
 # ══════════════════════════════════════════════════════════════════
 
 ADMIN_USERNAME = "karimovsherali"
+# Broadcast yubora oladigan telegram user_id'lar, vergul bilan: "123456,789012"
+ADMIN_IDS = {int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()}
 
 TEXTS = {
     "uz": {
@@ -698,6 +705,9 @@ async def cb_tariff(cb: CallbackQuery):
 # Foydalanuvchi to'ldirish summasi kutilmoqda
 user_topup_state = {}  # {uid: True} — summa kutilmoqda
 
+# {uid: {"photo_file_id":..., "stage": "ask_title"/"awaiting_title"/"ask_features"/"awaiting_features", "title":..., "features":...}}
+user_product_state = {}
+
 @router.message(F.text.in_(["💰 Balans", "💰 Баланс"]))
 async def btn_balance(msg: types.Message):
     uid = msg.from_user.id
@@ -816,6 +826,52 @@ async def cmd_help(msg: types.Message):
 # ASOSIY: Rasm qabul qilish
 # ══════════════════════════════════════════════════════════════════
 
+# ── 📢 Broadcast (faqat admin) ───────────────────────────────────
+# Ishlatish: yubormoqchi bo'lgan xabarga REPLY qilib /broadcast deb yozing.
+@router.message(Command("broadcast"))
+async def cmd_broadcast(msg: types.Message):
+    if msg.from_user.id not in ADMIN_IDS:
+        return  # admin bo'lmasa hech narsa demaymiz — jim o'tkazib yuboramiz
+
+    if not msg.reply_to_message:
+        await msg.answer(
+            "📢 Xabar yuborish uchun, yubormoqchi bo'lgan xabaringizga "
+            "<b>reply</b> qilib <code>/broadcast</code> deb yozing.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    user_ids = await db.get_all_user_ids()
+    total = len(user_ids)
+    status_msg = await msg.answer(f"📤 Yuborilmoqda: 0/{total}")
+
+    sent, failed = 0, 0
+    for i, uid in enumerate(user_ids, 1):
+        try:
+            await msg.reply_to_message.copy_to(chat_id=uid)
+            sent += 1
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Broadcast xatolik user={uid}: {e}")
+
+        # Telegram rate-limitiga urilmaslik uchun sekinlashtirish
+        if i % 25 == 0:
+            await asyncio.sleep(1)
+        if i % 50 == 0 or i == total:
+            try:
+                await status_msg.edit_text(f"📤 Yuborilmoqda: {i}/{total}")
+            except Exception:
+                pass
+
+    await status_msg.edit_text(
+        f"✅ <b>Broadcast tugadi!</b>\n\n"
+        f"✔️ Yuborildi: {sent}\n"
+        f"❌ Xato (bloklangan/o'chirilgan): {failed}\n"
+        f"👥 Jami: {total}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
 @router.message(F.photo)
 async def handle_photo(message: types.Message):
     uid = message.from_user.id
@@ -837,11 +893,25 @@ async def handle_photo(message: types.Message):
         return
 
     lang = settings.get("ui_lang", "uz")
+
+    # Photo file_id ni saqlash
+    photo_file_id = message.photo[-1].file_id
+
+    # Sarlavha/xususiyat so'rash — RASMNI TASDIQLASHDAN OLDIN, barcha tariflarda
+    user_product_state[uid] = {"photo_file_id": photo_file_id, "stage": "ask_title", "title": None, "features": None}
+    await ask_title_question(message, uid, lang)
+    return
+
+
+async def show_confirm_screen(message: types.Message, uid: int):
+    """Sarlavha/xususiyat javoblari yig'ilgandan keyin — tarif/narx tasdiq ekrani"""
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
+    tariff = settings.get("tariff", 0)
     tariff_name = get_tariff_name(tariff, lang)
     price = get_tariff_price(tariff)
     balance = await db.get_balance(uid)
 
-    # Tasdiqlash — qaysi tarif va narx
     if lang == "uz":
         confirm_text = (
             f"📦 <b>Tarif:</b> {tariff_name}\n"
@@ -850,7 +920,7 @@ async def handle_photo(message: types.Message):
             f"Davom etish uchun <b>Boshlash</b> ni bosing."
         )
         confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Boshlash", callback_data=f"confirm_photo_{message.message_id}")],
+            [InlineKeyboardButton(text="✅ Boshlash", callback_data="confirm_photo_go")],
             [InlineKeyboardButton(text="📦 Tarifni almashtirish", callback_data="change_tariff_from_photo")],
         ])
     else:
@@ -861,22 +931,16 @@ async def handle_photo(message: types.Message):
             f"Нажмите <b>Начать</b> для продолжения."
         )
         confirm_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✅ Начать", callback_data=f"confirm_photo_{message.message_id}")],
+            [InlineKeyboardButton(text="✅ Начать", callback_data="confirm_photo_go")],
             [InlineKeyboardButton(text="📦 Сменить тариф", callback_data="change_tariff_from_photo")],
         ])
-
-    # Photo file_id ni saqlash (confirm kelganda ishlatish uchun)
-    photo_file_id = message.photo[-1].file_id
-    user_tasks[f"pending_{uid}"] = photo_file_id
-
     await message.answer(confirm_text, parse_mode=ParseMode.HTML, reply_markup=confirm_kb)
-    return
 
 
 @router.callback_query(F.data == "change_tariff_from_photo")
 async def cb_change_tariff_from_photo(cb: CallbackQuery):
     uid = cb.from_user.id
-    user_tasks.pop(f"pending_{uid}", None)
+    user_product_state.pop(uid, None)
     await cb.answer()
     await cb.message.delete()
     tariff_kb = await get_tariff_keyboard()
@@ -901,18 +965,17 @@ async def cb_change_tariff_from_photo(cb: CallbackQuery):
                                 parse_mode=ParseMode.HTML, reply_markup=tariff_kb)
 
 
-@router.callback_query(F.data.startswith("confirm_photo_"))
+@router.callback_query(F.data == "confirm_photo_go")
 async def cb_confirm_photo(cb: CallbackQuery):
     uid = cb.from_user.id
-    photo_file_id = user_tasks.pop(f"pending_{uid}", None)
-    if not photo_file_id:
+    state = user_product_state.get(uid)
+    if not state or not state.get("photo_file_id"):
         await cb.answer("Rasm topilmadi, qayta yuboring." if (await get_settings(uid)).get("ui_lang") == "uz" else "Фото не найдено, отправьте снова.")
         await cb.message.delete()
         return
     await cb.answer()
     await cb.message.delete()
 
-    # Fake message yaratib handle_photo_process chaqirish
     settings = await get_settings(uid)
     lang = settings.get("ui_lang", "uz")
     tariff = settings.get("tariff", 0)
@@ -946,11 +1009,119 @@ async def cb_confirm_photo(cb: CallbackQuery):
         await cb.message.answer("⏳ Oldingi rasm hali tayyor bo'lmadi." if lang == "uz" else "⏳ Предыдущее фото обрабатывается.")
         return
 
-    # Rasmni yuklab olish va process qilish
-    await process_photo(cb.message, uid, photo_file_id, settings)
+    state = user_product_state.pop(uid, None)
+    await process_photo(
+        cb.message, uid, state["photo_file_id"], settings,
+        user_title=state.get("title"), user_features=state.get("features"),
+    )
 
 
-async def process_photo(message: types.Message, uid: int, photo_file_id: str, settings: dict):
+# ── Sarlavha / xususiyat so'rash oqimi (v2) ──────────────────────
+
+async def ask_title_question(message: types.Message, uid: int, lang: str):
+    text = "📝 Mahsulot uchun <b>sarlavha</b>ni o'zingiz yozasizmi?" if lang == "uz" \
+        else "📝 Хотите сами написать <b>название</b> товара?"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✍️ Ha, o'zim yozaman" if lang == "uz" else "✍️ Да, сам напишу",
+                              callback_data="ptitle_yes"),
+        InlineKeyboardButton(text="🤖 Yo'q, AI yozsin" if lang == "uz" else "🤖 Нет, пусть AI",
+                              callback_data="ptitle_no"),
+    ]])
+    await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+async def ask_features_question(message: types.Message, uid: int, lang: str):
+    text = "🏷 Mahsulot <b>xususiyatlarini</b> o'zingiz yozasizmi?" if lang == "uz" \
+        else "🏷 Хотите сами написать <b>характеристики</b> товара?"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="✍️ Ha, o'zim yozaman" if lang == "uz" else "✍️ Да, сам напишу",
+                              callback_data="pfeat_yes"),
+        InlineKeyboardButton(text="🤖 Yo'q, AI yozsin" if lang == "uz" else "🤖 Нет, пусть AI",
+                              callback_data="pfeat_no"),
+    ]])
+    await message.answer(text, parse_mode=ParseMode.HTML, reply_markup=kb)
+
+
+@router.callback_query(F.data.in_(["ptitle_yes", "ptitle_no"]))
+async def cb_product_title(cb: CallbackQuery):
+    uid = cb.from_user.id
+    state = user_product_state.get(uid)
+    await cb.answer()
+    if not state:
+        return
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
+
+    if cb.data == "ptitle_yes":
+        state["stage"] = "awaiting_title"
+        title_prompt = (
+            "✍️ <b>Sarlavhani yozing:</b>\n\n"
+            "<i>Misol uchun:</i> Smartfon S25 Ultra yoki Nike Air Jordan krossovkasi\n\n"
+            "💡 <i>Eslatma: Sarlavha matni qisqa, chiroyli va mahsulotga mos bo'lsin</i>"
+            if lang == "uz" else
+            "✍️ <b>Напишите название:</b>\n\n"
+            "<i>Например:</i> Смартфон S25 Ultra или кроссовки Nike Air Jordan\n\n"
+            "💡 <i>Совет: название должно быть коротким, привлекательным и соответствовать товару</i>"
+        )
+        try:
+            await cb.message.edit_text(title_prompt, parse_mode=ParseMode.HTML)
+        except Exception:
+            await cb.message.answer(title_prompt, parse_mode=ParseMode.HTML)
+    else:
+        state["title"] = None
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
+        await ask_features_question(cb.message, uid, lang)
+
+
+@router.callback_query(F.data.in_(["pfeat_yes", "pfeat_no"]))
+async def cb_product_features(cb: CallbackQuery):
+    uid = cb.from_user.id
+    state = user_product_state.get(uid)
+    await cb.answer()
+    if not state:
+        return
+    settings = await get_settings(uid)
+    lang = settings.get("ui_lang", "uz")
+
+    if cb.data == "pfeat_yes":
+        state["stage"] = "awaiting_features"
+        features_prompt = (
+            "✍️ <b>Xususiyatlarni yozing:</b>\n\n"
+            "<i>Misol uchun:</i> jigarrang, to'qilgan, issiq bosh kiyim, kuz va qish mavsumi uchun, ayollar uchun\n\n"
+            "💡 <i>Eslatma: Xususiyatlarni bir-biridan vergul bilan ajratib yozish tavsiya qilinadi va ular mahsulotga mos bo'lishi kerak</i>"
+            if lang == "uz" else
+            "✍️ <b>Напишите характеристики:</b>\n\n"
+            "<i>Например:</i> коричневый, вязаный, тёплый головной убор, для осенне-зимнего сезона, для женщин\n\n"
+            "💡 <i>Совет: характеристики рекомендуется писать через запятую, и они должны соответствовать товару</i>"
+        )
+        try:
+            await cb.message.edit_text(features_prompt, parse_mode=ParseMode.HTML)
+        except Exception:
+            await cb.message.answer(features_prompt, parse_mode=ParseMode.HTML)
+    else:
+        state["features"] = None
+        try:
+            await cb.message.delete()
+        except Exception:
+            pass
+        await show_confirm_screen(cb.message, uid)
+
+
+def _has_visible_brand(analysis: str) -> bool:
+    """Tahlil natijasida 'Brand (if visible on product):' qatorida aniq brend ko'rsatilganmi"""
+    for line in analysis.splitlines():
+        if line.strip().lower().startswith("- brand"):
+            val = line.split(":", 1)[1].strip() if ":" in line else ""
+            if val and val.lower() not in ("none", "yo'q", "yoq", "-", "n/a", "нет", "no"):
+                return True
+    return False
+
+
+async def process_photo(message: types.Message, uid: int, photo_file_id: str, settings: dict,
+                         user_title: str | None = None, user_features: str | None = None):
     """Rasmni qayta ishlash — confirm dan keyin chaqiriladi"""
     lang = settings.get("ui_lang", "uz")
     tariff = settings.get("tariff", 0)
@@ -973,30 +1144,43 @@ async def process_photo(message: types.Message, uid: int, photo_file_id: str, se
         image_bytes = raw.read()
         logger.info(f"Rasm: user={uid}, tariff={tariff}, bytes={len(image_bytes)}")
 
+        # Foydalanuvchi matnini infografika tiliga OLDINDAN tarjima qilib olamiz —
+        # shunda keyingi bosqichlarga allaqachon toza, to'g'ri tildagi matn boradi
+        if user_title:
+            user_title = translate_user_text(user_title, text_lang)
+        if user_features:
+            user_features = translate_user_text(user_features, text_lang)
+
         # 1. Tahlil
-        analysis = analyze_product(image_bytes)
+        analysis = analyze_product(image_bytes, user_title=user_title, user_features=user_features)
         cr = check_copyright(analysis)
         if cr:
             stop.set(); await progress
             await wait_msg.edit_text(t(settings, "error_copyright", keyword=cr), parse_mode=ParseMode.HTML)
             return
 
+        # Brend nomidan foydalanishga ruxsatmi? — rasmda aniq ko'ringan brend BOR bo'lsa,
+        # yoki foydalanuvchi o'zi sarlavha kiritgan bo'lsa, ruxsat beramiz (o'ylab topishga emas)
+        allow_brand = bool(user_title) or _has_visible_brand(analysis)
+
         # 2. Infografik (tariflar 1-4)
-        inf_prompt = write_infographic_prompt(analysis, text_lang)
+        inf_prompt = write_infographic_prompt(analysis, text_lang, allow_brand=allow_brand,
+                                               user_title=user_title, user_features=user_features)
         infographics = await gen_infographics_parallel(image_bytes, inf_prompt)
 
         # 3. Tavsif rasmlari (tariflar 3, 4)
         promos = []
         if tariff in (3, 4):
-            promo_prompts = write_promo_prompts(analysis, text_lang)
+            promo_prompts = write_promo_prompts(analysis, text_lang, allow_brand=allow_brand,
+                                             user_title=user_title, user_features=user_features)
             promos = await gen_promos_parallel(image_bytes, promo_prompts)
 
         # 4. Kartochka matnlari (tariflar 2, 4)
         card = None; full_uz = full_ru = ""
         if tariff in (2, 4):
-            card = gen_card_step1(image_bytes, text_lang)
+            card = gen_card_step1(image_bytes, text_lang, user_title=user_title, user_features=user_features, allow_brand=allow_brand)
             ctx = f"Tovar: {card['name_uz']}\nXususiyat: {card['feat_uz']}"
-            full_uz, full_ru = gen_card_step2(image_bytes, text_lang, ctx)
+            full_uz, full_ru = gen_card_step2(image_bytes, text_lang, ctx, allow_brand=allow_brand)
 
         stop.set(); await progress
 
@@ -1103,6 +1287,28 @@ async def handle_text(msg: types.Message):
     uid = msg.from_user.id
     settings = await get_settings(uid)
     lang = settings.get("ui_lang", "uz")
+
+    # Sarlavha/xususiyat matni kutilmoqda (v2 oqimi)
+    state = user_product_state.get(uid)
+    if state and state.get("stage") == "awaiting_title":
+        ok, reason = validate_user_text(msg.text, "title", lang)
+        if not ok:
+            retry = "\n\n✍️ Qaytadan urinib ko'ring:" if lang == "uz" else "\n\n✍️ Попробуйте снова:"
+            await msg.answer(f"⚠️ {reason}{retry}")
+            return  # stage o'zgarmaydi — foydalanuvchi qayta yozadi
+        state["title"] = msg.text.strip()
+        state["stage"] = "ask_features"
+        await ask_features_question(msg, uid, lang)
+        return
+    if state and state.get("stage") == "awaiting_features":
+        ok, reason = validate_user_text(msg.text, "features", lang)
+        if not ok:
+            retry = "\n\n✍️ Qaytadan urinib ko'ring:" if lang == "uz" else "\n\n✍️ Попробуйте снова:"
+            await msg.answer(f"⚠️ {reason}{retry}")
+            return
+        state["features"] = msg.text.strip()
+        await show_confirm_screen(msg, uid)
+        return
 
     # To'ldirish summasi kutilmoqda
     if user_topup_state.get(uid):

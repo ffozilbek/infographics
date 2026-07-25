@@ -7,6 +7,7 @@ prompts.py — Barcha AI prompt va matn generatsiya funksiyalari
 import asyncio
 import base64
 import io
+import json
 import logging
 import os
 import re
@@ -52,6 +53,29 @@ Return ONLY structured output in this exact format:
    BAD (physical label, English): "Patterned materials", "Supportive structure", "Functional design"
    GOOD (customer benefit, Uzbek): "Kun bo'yi oyoq charchamaydi", "Terga chidamli mato", "Ko'z tortuvchi ko'rinish"
    GOOD (customer benefit, Russian): "Ноги не устают весь день", "Не промокает под дождём", "Выглядит стильно всегда"
+
+   ⚠️ EACH BENEFIT MUST BE GROUNDED IN ONE OF TWO THINGS — not in vague generic marketing filler:
+   (a) A SPECIFIC VISUAL DETAIL you can actually see in THIS image — a particular color, texture,
+       pose, expression, material finish, proportion, or construction detail.
+   (b) A GENUINE USE-CASE SPECIFIC TO THIS EXACT PRODUCT TYPE — the real, specific way this kind of
+       product is actually used or valued. Think about what this product type is genuinely FOR.
+       e.g. for a collectible figure: "kolleksiyangizga qo'shimcha", "ish stoli/javon uchun dekor
+       buyumi" — these are genuine because collecting/displaying is literally what figures are for.
+       e.g. for a plush toy: comfort during sleep/play, a companion for a specific age group.
+       This is DIFFERENT from generic filler: a real use-case is specific to what this product
+       category IS FOR, while filler is a vague claim that could describe literally any object.
+   ⚠️ GENERIC FILLER IS FORBIDDEN — vague claims that could apply to almost ANY small product,
+   regardless of category, and say nothing about what THIS product actually is or does. Test:
+   "would this exact sentence still make sense for a completely different, unrelated product?"
+   If yes, it's filler — rewrite it. Examples of filler to avoid unless the image gives a concrete
+   reason for it (e.g. only call something "compact" if it's visibly unusually small or foldable):
+   "oson saqlash" / "легко хранить" (unless visibly foldable/tiny), "yengil va ko'chirish oson" /
+   "лёгкий, удобно носить" (unless visibly miniature), "qiziqarli ko'rinish" / "интересный вид",
+   "rang-barang ko'rinishi bilan jalb qiladi" / "яркий, привлекает внимание" — these say nothing
+   specific about the product itself.
+   Note "ideal sovg'a" / "идеальный подарок" and "mukammal do'st" / "идеальный друг" ARE acceptable
+   as genuine use-case benefits (rule b) for toys/figures/gift items specifically, since gifting and
+   companionship are real reasons people buy this category — just don't use them for every product.
 - Feature 1 benefit:
 - Feature 2 benefit:
 - Feature 3 benefit:
@@ -139,7 +163,52 @@ def check_copyright(text):
 # INFOGRAFIK PROMPT (avvalgi ishlagan to'liq versiya)
 # ══════════════════════════════════════════════════════════════════
 
-def get_infographic_prompt_system(text_lang, allow_brand=False):
+def get_infographic_prompt_system(text_lang, allow_brand=False, include_badges=True):
+    if include_badges:
+        badge_layout_block = """- Badge block on the right side: 1-3 spec badges stacked VERTICALLY
+  inside one rounded container, separated by thin divider lines
+- Each badge: large number + unit on top, small label underneath
+- If the product is sold in SEVERAL size/volume options, give EACH option its own badge
+  (e.g. "886 L / 183x51 sm" and "3853 L / 305x76 sm") — never merge them into one line
+
+⚠️ BADGE LABELS — NEVER INVENT MEANING:
+- A badge label must state ONLY what the source data actually says.
+- If two volumes are listed as ALTERNATIVE SIZE OPTIONS of the same product, both badges
+  describe the SAME kind of measurement. Label them identically (e.g. both "SUV HAJMI"),
+  or label each with its physical size, or use no label at all.
+- FORBIDDEN: inventing two DIFFERENT meanings for two option values.
+  WRONG: "886 L / SUV HAJMI" + "3853 L / TO'LIQ HAJMI"  ← fabricated distinction
+  RIGHT: "886 L / 183x51 SM" + "3853 L / 305x76 SM"
+  RIGHT: "886 L" + "3853 L" with a single shared caption "HAJMI TANLANADI"
+- If you do not know what a number means, print the number with its unit and NO label.
+  Never guess a label to fill the space.
+
+⚠️ BADGE VALUES — NEVER DERIVE, ONLY COPY:
+- A badge may contain ONLY a value that is written EXPLICITLY in the analysis or in the
+  user's text. Copy it, never compute it.
+- Model codes, article numbers, part numbers and SKUs are IDENTIFIERS, NOT specs.
+  NEVER decode them into a spec value, even if the digits look meaningful.
+  WRONG: user wrote "Artel 3216 E, 3618 E, 4218 E, 32L va 36L" -> badges "32 L", "36 L", "42 L"
+         (42 was invented by reading the model code "4218 E" — forbidden)
+  RIGHT: badges "32 L", "36 L" only — those are the volumes the user actually stated
+- If the count of model codes does not match the count of stated specs, DO NOT balance them.
+  Show only what was stated and leave the rest out.
+- Never round, convert, average or extrapolate a number.
+
+⚠️ BADGE CAPTION — WRITE IT ONCE:
+- When several badges share the same caption, print that caption ONCE for the whole block
+  (above or below the stack), never repeated on every badge.
+  WRONG: "32 L / HAJMI TANLANADI", "36 L / HAJMI TANLANADI", "42 L / HAJMI TANLANADI"
+  RIGHT: caption "HAJMI TANLANADI" once, then the values "32 L" and "36 L" beneath it
+- Clean bottom section with closing tagline"""
+    else:
+        badge_layout_block = """- NO badge block, NO spec numbers, NO stat callouts anywhere on the image.
+  This product has no user-provided title/features and no confirmed numeric specs,
+  so the layout is HEADLINE + FEATURE LIST + PRODUCT IMAGE ONLY — nothing else.
+- Do NOT add an age range, height, weight, capacity, wattage, volume, or any other
+  number you were not explicitly given. If you don't have real data, leave that
+  space empty rather than filling it with a plausible-looking badge.
+- Clean bottom section with closing tagline"""
     if allow_brand:
         brand_rule_1 = "- If the product analysis mentions a visible brand name, or the user explicitly provided the product name/title, you MAY use that EXACT brand/product name as-is (do not invent, do not translate it) — but do not add any OTHER brand name not present in the analysis or user input."
         brand_rule_2 = "3. Brand name allowed ONLY if it was given in the analysis (visible on product) or by the user — otherwise NO brand names"
@@ -278,42 +347,7 @@ Layout (3:4 portrait):
 - Headline top-left, large bold text
 - Subheadline below headline, smaller
 - Features list on the left side, vertically arranged
-- Badge block (if applicable) on the right side: 1-3 spec badges stacked VERTICALLY
-  inside one rounded container, separated by thin divider lines
-- Each badge: large number + unit on top, small label underneath
-- If the product is sold in SEVERAL size/volume options, give EACH option its own badge
-  (e.g. "886 L / 183x51 sm" and "3853 L / 305x76 sm") — never merge them into one line
-
-⚠️ BADGE LABELS — NEVER INVENT MEANING:
-- A badge label must state ONLY what the source data actually says.
-- If two volumes are listed as ALTERNATIVE SIZE OPTIONS of the same product, both badges
-  describe the SAME kind of measurement. Label them identically (e.g. both "SUV HAJMI"),
-  or label each with its physical size, or use no label at all.
-- FORBIDDEN: inventing two DIFFERENT meanings for two option values.
-  WRONG: "886 L / SUV HAJMI" + "3853 L / TO'LIQ HAJMI"  ← fabricated distinction
-  RIGHT: "886 L / 183x51 SM" + "3853 L / 305x76 SM"
-  RIGHT: "886 L" + "3853 L" with a single shared caption "HAJMI TANLANADI"
-- If you do not know what a number means, print the number with its unit and NO label.
-  Never guess a label to fill the space.
-
-⚠️ BADGE VALUES — NEVER DERIVE, ONLY COPY:
-- A badge may contain ONLY a value that is written EXPLICITLY in the analysis or in the
-  user's text. Copy it, never compute it.
-- Model codes, article numbers, part numbers and SKUs are IDENTIFIERS, NOT specs.
-  NEVER decode them into a spec value, even if the digits look meaningful.
-  WRONG: user wrote "Artel 3216 E, 3618 E, 4218 E, 32L va 36L" -> badges "32 L", "36 L", "42 L"
-         (42 was invented by reading the model code "4218 E" — forbidden)
-  RIGHT: badges "32 L", "36 L" only — those are the volumes the user actually stated
-- If the count of model codes does not match the count of stated specs, DO NOT balance them.
-  Show only what was stated and leave the rest out.
-- Never round, convert, average or extrapolate a number.
-
-⚠️ BADGE CAPTION — WRITE IT ONCE:
-- When several badges share the same caption, print that caption ONCE for the whole block
-  (above or below the stack), never repeated on every badge.
-  WRONG: "32 L / HAJMI TANLANADI", "36 L / HAJMI TANLANADI", "42 L / HAJMI TANLANADI"
-  RIGHT: caption "HAJMI TANLANADI" once, then the values "32 L" and "36 L" beneath it
-- Clean bottom section with closing tagline
+{badge_layout_block}
 
 Extras:
 - Add subtle realistic elements depending on product
@@ -523,57 +557,143 @@ def proofread_image_text(prompt: str, text_lang: str) -> str:
     return prompt
 
 
+EXTRACT_SPECS_SYSTEM = """You are a strict data extraction tool. You do NOT write marketing copy, you do NOT
+invent anything, you do NOT compute anything. You ONLY pull out what is literally written in the input text.
+
+You will receive a product TITLE and/or FEATURES text written by a seller. Extract ONLY what is explicitly
+stated, into this exact JSON shape:
+
+{
+  "headline_material": "<short phrase from the title capturing product type + key selling point, or empty string>",
+  "subtitle_material": "<brand name and/or model code if literally present in the title, or empty string>",
+  "badges": [
+    {"value": "<number + unit EXACTLY as written, e.g. '32 L', '5.1 ML', '220 gramm'>"}
+  ],
+  "features": ["<short feature point derived from the features text>", "..."]
+}
+
+HARD RULES:
+1. "badges" may ONLY contain values that are a number + unit LITERALLY present in the title or features text.
+   NEVER compute, round, average, or derive a number. NEVER decode a model/article code (e.g. "4218 E") into
+   a spec value. NEVER invent a plausible value for the product category (age range, height, weight, etc.)
+   if it is not literally written in the text.
+2. "badges" array length is capped at 3. If the text contains MORE than 3 explicit numeric specs, keep ONLY
+   the 3 most purchase-relevant ones — prioritize in this order: volume/capacity > size/dimensions > weight
+   > power/wattage > count/quantity > other. Drop identifiers (model codes, SKUs, article numbers) entirely —
+   they are never badges.
+3. If the text contains ZERO explicit numeric specs, "badges" MUST be an empty array []. Do not fill it with
+   anything, ever.
+4. "headline_material" and "subtitle_material" come ONLY from the title text (if given). If no title given,
+   both are empty strings.
+5. "features" come ONLY from the features text (if given), split into short standalone points. If no features
+   given, this is an empty array.
+6. Output ONLY the JSON object, nothing else — no markdown fences, no explanation."""
+
+
+def extract_structured_specs(user_title=None, user_features=None):
+    """
+    Foydalanuvchi yozgan xom title/feature matnini tahlil qilib, faqat matnda
+    so'zma-so'z mavjud narsalarni struktura (dict) shaklida ajratib beradi.
+    Hech narsa o'ylab topilmaydi — badge soni shu yerda 3 tagacha cheklanadi.
+    Xatolik yuz bersa fail-safe: bo'sh struktura qaytadi (badge'siz, xavfsiz holat).
+    """
+    empty = {"headline_material": "", "subtitle_material": "", "badges": [], "features": []}
+    if not user_title and not user_features:
+        return empty
+
+    parts = []
+    if user_title:
+        parts.append(f"TITLE:\n{user_title}")
+    if user_features:
+        parts.append(f"FEATURES:\n{user_features}")
+    user_content = "\n\n".join(parts)
+
+    try:
+        r = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": EXTRACT_SPECS_SYSTEM},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=600, temperature=0,
+        )
+        raw = r.choices[0].message.content.strip()
+        raw = re.sub(r"^```(?:json)?|```$", "", raw.strip(), flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+    except Exception as e:
+        logger.warning(f"extract_structured_specs xatolik: {e} — bo'sh struktura qaytariladi (fail-safe)")
+        return empty
+
+    # Kod darajasida qo'shimcha xavfsizlik — 3 tadan ortiq badge hech qachon o'tmasin,
+    # struktura JSON formatiga mos kelmasa ham funksiya baribir yiqilmasin.
+    badges = data.get("badges") or []
+    if not isinstance(badges, list):
+        badges = []
+    badges = [b for b in badges if isinstance(b, dict) and b.get("value")][:3]
+
+    features = data.get("features") or []
+    if not isinstance(features, list):
+        features = []
+
+    return {
+        "headline_material": str(data.get("headline_material") or ""),
+        "subtitle_material": str(data.get("subtitle_material") or ""),
+        "badges": badges,
+        "features": [str(f) for f in features],
+    }
+
+
 def write_infographic_prompt(analysis, text_lang, allow_brand=False, user_title=None, user_features=None):
     lang_name = "Uzbek" if text_lang == "uz" else "Russian"
+
+    # 1-bosqich: xom title/feature matnidan faqat haqiqatan mavjud narsalarni
+    # ajratib olamiz (badge soni bu yerda allaqachon max 3 ga cheklangan).
+    specs = extract_structured_specs(user_title, user_features)
+    include_badges = len(specs["badges"]) > 0
+
     user_override = ""
-    if user_title:
+    if specs["headline_material"] or specs["subtitle_material"]:
         user_override += (
-            f"\n\n⚠️ MANDATORY HEADLINE OVERRIDE: this is the user-provided product name/title: \"{user_title}\"\n"
-            f"Do NOT cram this entire text as-is into the main headline — it is too long/technical for a headline. "
-            f"Instead, break it apart intelligently:\n"
-            f"- MAIN HEADLINE (large, bold, 2-5 words): extract the most catchy/sellable part — usually the "
-            f"product type + its key selling feature (e.g. from 'suvga chidamli podvodka Dip Eyeliner Black, "
-            f"5.1 ml' → headline could be 'SUVGA CHIDAMLI PODVODKA')\n"
-            f"- SUBTITLE (smaller text under/near the headline): brand name and/or model code, if present "
-            f"(e.g. 'DIP EYELINER BLACK' or 'AVL-CM1080'). Keep it to ONE line — if the user listed "
-            f"several model codes, show the brand plus at most two codes, or just the brand and product "
-            f"line; do not dump the entire raw string into the subtitle\n"
-            f"- BADGE(S) (small corner badge block, like a spec callout — same style as e.g. '108 MP'): "
-            f"numeric specs such as volume/size/capacity, if present (e.g. '5.1 ML'). If the text lists "
-            f"SEVERAL size or volume options (e.g. '886 l va 3853 l', '183x51 sm yoki 305x76 sm'), render "
-            f"EACH option as its OWN badge stacked vertically — max 3 — instead of cramming them into one "
-            f"badge or into the headline. These are ALTERNATIVE VARIANTS the buyer chooses between, NOT "
-            f"different measurements of one unit — so do NOT invent a distinct label for each "
-            f"(never 'water volume' vs 'total volume'); write the shared caption ONCE for the whole "
-            f"badge block instead of repeating it on each badge. CRITICAL: use ONLY the spec values "
-            f"literally present in the user's text — model codes / article numbers (e.g. '3216 E', "
-            f"'4218 E', 'LM-TE2503') are identifiers, NEVER decode digits from them into a volume, "
-            f"size or wattage. If there are more model codes than stated specs, that is fine — show "
-            f"only the stated specs\n"
-            f"Only include a subtitle or badge if the user's text actually contains that kind of information — "
-            f"don't invent one. Preserve the original meaning, just distribute it across headline/subtitle/badge "
-            f"instead of one long line. IMPORTANT: all of this text MUST be entirely in {lang_name} — if the "
-            f"user's text is written in a different language, TRANSLATE it into {lang_name} first, do not mix languages."
+            f"\n\n⚠️ MANDATORY HEADLINE OVERRIDE — use this pre-extracted material (already verified against "
+            f"the user's original text, do not add anything beyond it):\n"
+            f"- MAIN HEADLINE (large, bold, 2-5 words) should be based on: \"{specs['headline_material']}\"\n"
+            + (f"- SUBTITLE (smaller text, ONE line) should be based on: \"{specs['subtitle_material']}\"\n" if specs["subtitle_material"] else "")
+            + f"Adapt wording/length to fit the required format, but do not introduce new claims. "
+            f"All of this text MUST be entirely in {lang_name} — translate first if the source was in another language."
         )
-    if user_features:
+    if specs["features"]:
+        features_str = "; ".join(specs["features"])
         user_override += (
             f"\n\n⚠️ MANDATORY FEATURES OVERRIDE: The 3-4 feature list items on the infographic MUST be "
-            f"based on these user-provided features, preserving their meaning (split/rewrite into short "
-            f"feature points in the required style; do NOT replace them with unrelated generic features). "
-            f"IMPORTANT: the final feature text on the image MUST be entirely in {lang_name} — if this text "
-            f"is written in a different language, TRANSLATE it into {lang_name} first, do not leave it in the "
-            f"original language or mix languages: \"{user_features}\""
+            f"based on these pre-extracted feature points, preserving their meaning (rewrite into the "
+            f"required short style; do NOT replace them with unrelated generic features, do NOT add new "
+            f"ones beyond what's listed here): {features_str}\n"
+            f"All feature text MUST be entirely in {lang_name} — translate first if the source was in another language."
         )
+    if include_badges:
+        badge_values = ", ".join(f"\"{b['value']}\"" for b in specs["badges"])
+        user_override += (
+            f"\n\n⚠️ MANDATORY BADGE OVERRIDE: create EXACTLY {len(specs['badges'])} badge(s) — no more, no "
+            f"fewer — using ONLY these pre-verified values, copied exactly as given: {badge_values}\n"
+            f"These are already filtered and capped at 3 — never render more than {len(specs['badges'])} "
+            f"badges even if the analysis text below seems to suggest other numbers. Stack them vertically "
+            f"if there is more than one. If the values represent ALTERNATIVE VARIANTS (e.g. size/volume "
+            f"options the buyer chooses between), write ONE shared caption for the whole block instead of "
+            f"a different label per badge. Do NOT invent a label if you're unsure what the number means — "
+            f"showing the value with its unit and no label is correct. All badge text MUST be entirely in "
+            f"{lang_name} — translate the unit/label if needed, but never change the numeric value."
+        )
+
     r = _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": get_infographic_prompt_system(text_lang, allow_brand=allow_brand)},
+            {"role": "system", "content": get_infographic_prompt_system(text_lang, allow_brand=allow_brand, include_badges=include_badges)},
             {"role": "user", "content": f"Based on this product analysis, write the image generation prompt:\n\n{analysis}{user_override}"},
         ],
         max_tokens=2000, temperature=0.7,
     )
     prompt = r.choices[0].message.content.strip()
-    logger.info(f"Infographic prompt: {len(prompt)} chars")
+    logger.info(f"Infographic prompt: {len(prompt)} chars, badges={'on (' + str(len(specs['badges'])) + ')' if include_badges else 'off'}")
     prompt = proofread_image_text(prompt, text_lang)
     return prompt
 

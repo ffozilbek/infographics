@@ -294,6 +294,14 @@ async def get_stats() -> dict:
     }
 
 
+async def get_all_user_ids() -> list:
+    """Broadcast uchun — barcha foydalanuvchilarning user_id ro'yxati"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT user_id FROM users")
+        return [r["user_id"] for r in rows]
+
+
 async def get_all_users(limit: int = 50, offset: int = 0) -> list:
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -321,3 +329,41 @@ async def admin_set_balance(user_id: int, amount: int, admin_note: str = "admin"
                 VALUES ($1, $2, 'topup', 'completed', $3)
             """, user_id, amount, admin_note)
     logger.info(f"Admin balans o'rnatdi: user={user_id}, balance={amount}")
+
+# ══════════════════════════════════════════════════════════════════
+# TRANZIENT ULANISH XATOLARIDA AVTOMATIK QAYTA URINISH
+# ══════════════════════════════════════════════════════════════════
+# Sabab: uzoq AI so'rovlari orasida connection pool'dagi ulanish
+# tarmoq/proxy tomonidan uzilib qolishi mumkin ("connection was closed
+# in the middle of operation"). Bu holatda funksiyani 1 marta qayta
+# chaqiramiz — asyncpg pool o'lik ulanishni avtomatik chiqarib tashlab,
+# yangisini beradi.
+
+import functools as _functools
+import inspect as _inspect
+import sys as _sys
+
+_TRANSIENT_DB_ERRORS = (
+    asyncpg.exceptions.ConnectionDoesNotExistError,
+    asyncpg.exceptions.InterfaceError,
+    asyncpg.exceptions.ConnectionFailureError,
+    OSError,
+)
+
+def _with_db_retry(fn):
+    @_functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await fn(*args, **kwargs)
+        except _TRANSIENT_DB_ERRORS as e:
+            logger.warning(f"DB ulanish xatoligi ({fn.__name__}), qayta urinilmoqda: {e}")
+            return await fn(*args, **kwargs)
+    return wrapper
+
+# Shu moduldagi barcha public async funksiyalarni avtomatik o'raymiz
+_this_module = _sys.modules[__name__]
+for _name, _obj in list(vars(_this_module).items()):
+    if _name.startswith("_"):
+        continue
+    if _inspect.iscoroutinefunction(_obj):
+        setattr(_this_module, _name, _with_db_retry(_obj))

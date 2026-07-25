@@ -84,18 +84,32 @@ CRITICAL — PRODUCT IDENTITY:
 - Example: A mousepad with soldiers printed on it → Product = mousepad, Design = military theme
 - Example: A mug with a cat printed on it → Product = ceramic mug, Design = cat pattern"""
 
-def analyze_product(image_bytes, text_lang="uz"):
+def analyze_product(image_bytes, text_lang="uz", user_title=None, user_features=None):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
     lang_note = (
         "Write Feature benefits (section 4) and Headline (section 7) directly in UZBEK — natural marketplace Uzbek, NOT English."
         if text_lang == "uz" else
         "Write Feature benefits (section 4) and Headline (section 7) directly in RUSSIAN — natural conversational Russian, NOT English."
     )
+    lang_full = "Uzbek" if text_lang == "uz" else "Russian"
+    user_hint = ""
+    if user_title:
+        user_hint += (
+            f"\n\nUSER-PROVIDED PRODUCT NAME (use this as the basis for section 1 'Product type' "
+            f"and section 7 'Headline Concept' — adapt to the required format/length, don't ignore it. "
+            f"Write it in {lang_full} — translate first if it's given in another language): {user_title}"
+        )
+    if user_features:
+        user_hint += (
+            f"\n\nUSER-PROVIDED FEATURES (incorporate these into section 4 'Key Product Features' "
+            f"as customer benefits, rewritten in the required style — don't ignore them. "
+            f"Write them in {lang_full} — translate first if given in another language): {user_features}"
+        )
     r = _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": [
 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
-{"type": "text", "text": ANALYSIS_PROMPT + f"\n\nLANGUAGE NOTE: {lang_note}"},
+{"type": "text", "text": ANALYSIS_PROMPT + f"\n\nLANGUAGE NOTE: {lang_note}" + user_hint},
 ]}],
         max_tokens=1000, temperature=0.3,
 )
@@ -122,7 +136,13 @@ def check_copyright(text):
 # INFOGRAFIK PROMPT (avvalgi ishlagan to'liq versiya)
 # ══════════════════════════════════════════════════════════════════
 
-def get_infographic_prompt_system(text_lang):
+def get_infographic_prompt_system(text_lang, allow_brand=False):
+    if allow_brand:
+        brand_rule_1 = "- If the product analysis mentions a visible brand name, or the user explicitly provided the product name/title, you MAY use that EXACT brand/product name as-is (do not invent, do not translate it) — but do not add any OTHER brand name not present in the analysis or user input."
+        brand_rule_2 = "3. Brand name allowed ONLY if it was given in the analysis (visible on product) or by the user — otherwise NO brand names"
+    else:
+        brand_rule_1 = "- NEVER put any brand name or logo text on the image"
+        brand_rule_2 = "3. ABSOLUTELY NO BRAND NAMES anywhere on the image"
     if text_lang == "uz":
         lang_instruction = "ALL text on the infographic must be in UZBEK language with PERFECT spelling."
         banned = 'BANNED: "aksiya", "bepul", "chegirma", "top", "xit", "yangilik", "eng yaxshi", "arzon".'
@@ -247,13 +267,12 @@ Quality:
 {banned}
 - NO comparative/superlative claims
 - NO excessive punctuation
-- NEVER put any brand name or logo text on the image
-- Instead of brand name, use product type or feature as headline
+{brand_rule_1}
 
 CRITICAL RULES:
 1. ALL text spelled PERFECTLY
 2. Put all text in "quotes"
-3. ABSOLUTELY NO BRAND NAMES anywhere on the image
+{brand_rule_2}
 4. NEVER use banned words
 5. Use product type + key feature as headline
 6. NEVER translate text that is printed/written on the product
@@ -261,12 +280,40 @@ CRITICAL RULES:
 """
 
 
-def write_infographic_prompt(analysis, text_lang):
+def write_infographic_prompt(analysis, text_lang, allow_brand=False, user_title=None, user_features=None):
+    lang_name = "Uzbek" if text_lang == "uz" else "Russian"
+    user_override = ""
+    if user_title:
+        user_override += (
+            f"\n\n⚠️ MANDATORY HEADLINE OVERRIDE: this is the user-provided product name/title: \"{user_title}\"\n"
+            f"Do NOT cram this entire text as-is into the main headline — it is too long/technical for a headline. "
+            f"Instead, break it apart intelligently:\n"
+            f"- MAIN HEADLINE (large, bold, 2-5 words): extract the most catchy/sellable part — usually the "
+            f"product type + its key selling feature (e.g. from 'suvga chidamli podvodka Dip Eyeliner Black, "
+            f"5.1 ml' → headline could be 'SUVGA CHIDAMLI PODVODKA')\n"
+            f"- SUBTITLE (smaller text under/near the headline): brand name and/or model code, if present "
+            f"(e.g. 'DIP EYELINER BLACK' or 'AVL-CM1080')\n"
+            f"- BADGE (small circular/corner badge, like a spec callout — same style as e.g. '108 MP'): any "
+            f"numeric spec such as volume/size/capacity, if present (e.g. '5.1 ML')\n"
+            f"Only include a subtitle or badge if the user's text actually contains that kind of information — "
+            f"don't invent one. Preserve the original meaning, just distribute it across headline/subtitle/badge "
+            f"instead of one long line. IMPORTANT: all of this text MUST be entirely in {lang_name} — if the "
+            f"user's text is written in a different language, TRANSLATE it into {lang_name} first, do not mix languages."
+        )
+    if user_features:
+        user_override += (
+            f"\n\n⚠️ MANDATORY FEATURES OVERRIDE: The 3-4 feature list items on the infographic MUST be "
+            f"based on these user-provided features, preserving their meaning (split/rewrite into short "
+            f"feature points in the required style; do NOT replace them with unrelated generic features). "
+            f"IMPORTANT: the final feature text on the image MUST be entirely in {lang_name} — if this text "
+            f"is written in a different language, TRANSLATE it into {lang_name} first, do not leave it in the "
+            f"original language or mix languages: \"{user_features}\""
+        )
     r = _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
-            {"role": "system", "content": get_infographic_prompt_system(text_lang)},
-            {"role": "user", "content": f"Based on this product analysis, write the image generation prompt:\n\n{analysis}"},
+            {"role": "system", "content": get_infographic_prompt_system(text_lang, allow_brand=allow_brand)},
+            {"role": "user", "content": f"Based on this product analysis, write the image generation prompt:\n\n{analysis}{user_override}"},
         ],
         max_tokens=2000, temperature=0.7,
     )
@@ -301,9 +348,30 @@ async def gen_infographics_parallel(image_bytes, prompt):
 # TAVSIF RASMLARI (2 ta, har xil)
 # ══════════════════════════════════════════════════════════════════
 
-def write_promo_prompts(analysis, text_lang):
+def write_promo_prompts(analysis, text_lang, allow_brand=False, user_title=None, user_features=None):
     """2 ta FARQLI tavsif rasm prompti yozadi"""
     lang_name = "Uzbek" if text_lang == "uz" else "Russian"
+    user_override = ""
+    if user_title:
+        user_override += (
+            f"\n\n⚠️ This is the user-provided product name/title: \"{user_title}\"\n"
+            f"Do NOT cram this entire text as-is into the headline if it's long/technical (brand + model code + "
+            f"volume/size etc). Instead extract the catchy product-type/benefit part for the main headline "
+            f"(short, 2-5 words), and put brand/model code as a smaller subtitle and any numeric spec "
+            f"(volume/size) as a small badge — only if that info is actually present. Preserve meaning. "
+            f"All text on the image MUST be entirely in {lang_name} — if this is written in a different "
+            f"language, TRANSLATE it into {lang_name} first."
+        )
+    if user_features:
+        user_override += (
+            f"\n\n⚠️ Feature callouts must be based on these user-provided features, preserving their meaning "
+            f"(don't invent unrelated ones). All text on the image MUST be entirely in {lang_name} — if this "
+            f"is written in a different language, TRANSLATE it into {lang_name} first: \"{user_features}\""
+        )
+    if allow_brand:
+        promo_brand_rule = "- Brand name allowed ONLY if it was given in the analysis (visible on product) or explicitly provided by the user — use it exactly as given, do not invent or translate it"
+    else:
+        promo_brand_rule = "- ABSOLUTELY NO brand names or logos on the image — brand names cause product blocking\n- Use product type and features instead of brand name"
     if text_lang == "uz":
         copy_rules = """
 UZBEK COPYWRITING FOR PROMO IMAGES:
@@ -352,14 +420,13 @@ Show the product in a DIFFERENT context/setting. Include:
 - Different icons and visual elements
 Both prompts:
 - Keep the EXACT same product from reference image, DO NOT modify
-- ABSOLUTELY NO brand names or logos on the image — brand names cause product blocking
-- Use product type and features instead of brand name
+{promo_brand_rule}
 - Square 1:1 format
 - Ultra realistic, commercial advertising quality
 - All text in {lang_name}, in "quotes", short and impactful
 - Text must sound like a real marketplace seller wrote it — not a translator
 - NO banned words (акция/aksiya, скидка/chegirma, лучший/eng yaxshi, топ/top, хит/xit, бесплатно/bepul)"""},
-{"role": "user", "content": f"Write 2 COMPLETELY DIFFERENT promo image prompts for:\n\n{analysis}"},
+{"role": "user", "content": f"Write 2 COMPLETELY DIFFERENT promo image prompts for:\n\n{analysis}{user_override}"},
 ],
         max_tokens=2000, temperature=0.8,
 )
@@ -539,15 +606,34 @@ TAVSIF_RU:
 🚫 Стоп-слова запрещены.""",
 }
 
-def gen_card_step1(image_bytes, text_lang):
+def gen_card_step1(image_bytes, text_lang, user_title=None, user_features=None, allow_brand=False):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
+    brand_note = (
+        "If a brand name is clearly visible on the product or was given by the user, you may include it exactly as given. "
+        if allow_brand else "NO brand names. "
+    )
+    instruction = f"Generate product name (70-90 chars), SEO keywords (300-390 chars), and features list. {brand_note}"
+    if user_title:
+        instruction += (
+            f"\n\nFoydalanuvchi taklif qilgan mahsulot nomi (buni asos qilib oling, "
+            f"70-90 belgi formatiga moslab qayta yozing, ikkala tilda ham (name_uz va name_ru) — "
+            f"agar matn boshqa tilda yozilgan bo'lsa, avval kerakli tilga TARJIMA qiling, "
+            f"tillarni aralashtirmang): {user_title}"
+        )
+    if user_features:
+        instruction += (
+            f"\n\nFoydalanuvchi ko'rsatgan xususiyatlar (bularni albatta ANIQ PARAMETR "
+            f"formatida ro'yxatga kiriting, ikkala tilda ham (feat_uz va feat_ru) — "
+            f"agar matn boshqa tilda yozilgan bo'lsa, avval kerakli tilga TARJIMA qiling, "
+            f"tillarni aralashtirmang): {user_features}"
+        )
     r = _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": CARD_TEXT_SYSTEM.get(text_lang, CARD_TEXT_SYSTEM["ru"])},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
-                {"type": "text", "text": "Generate product name (70-90 chars), SEO keywords (300-390 chars), and features list. NO brand names."},
+                {"type": "text", "text": instruction},
             ]},
         ],
         max_tokens=2000, temperature=0.5,
@@ -589,15 +675,16 @@ def gen_card_step1(image_bytes, text_lang):
     logger.info(f"Card parsed: name_uz={len(result['name_uz'])}, feat_uz={len(result['feat_uz'])}, feat_ru={len(result['feat_ru'])}")
     return result
 
-def gen_card_step2(image_bytes, text_lang, context):
+def gen_card_step2(image_bytes, text_lang, context, allow_brand=False):
     b64 = base64.b64encode(image_bytes).decode("utf-8")
+    brand_instr = "" if allow_brand else " Brend nomini qo'shma."
     r = _client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": DESCRIPTION_SYSTEM.get(text_lang, DESCRIPTION_SYSTEM["ru"])},
             {"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "high"}},
-                {"type": "text", "text": f"Mahsulot:\n{context}\n\nUZUN tavsif yoz, har tilda KAMIDA 1500 belgi, 10-12 paragraf. Brend nomini qo'shma."},
+                {"type": "text", "text": f"Mahsulot:\n{context}\n\nUZUN tavsif yoz, har tilda KAMIDA 1500 belgi, 10-12 paragraf.{brand_instr}"},
             ]},
         ],
         max_tokens=4000, temperature=0.6,
@@ -608,3 +695,90 @@ def gen_card_step2(image_bytes, text_lang, context):
         p = raw.split("TAVSIF_RU:")
         return p[0].replace("TAVSIF_UZ:","").strip(), p[1].strip()
     return raw, raw
+
+# ══════════════════════════════════════════════════════════════════
+# FOYDALANUVCHI KIRITGAN SARLAVHA/XUSUSIYAT VALIDATSIYASI (v2)
+# ══════════════════════════════════════════════════════════════════
+
+def validate_user_text(text: str, kind: str, text_lang: str = "uz") -> tuple[bool, str]:
+    """
+    Foydalanuvchi yozgan sarlavha/xususiyat matnini tekshiradi.
+    kind: "title" yoki "features"
+    Qaytaradi: (is_valid, error_message_yoki_bosh_qator)
+    """
+    text = (text or "").strip()
+
+    # Tezkor heuristika — juda qisqa yoki juda uzun matnni AI'gacha filtrlaymiz
+    if len(text) < 2:
+        msg = "Matn juda qisqa. Iltimos, mahsulot haqida to'liqroq yozing." if text_lang == "uz" \
+            else "Текст слишком короткий. Пожалуйста, напишите подробнее о товаре."
+        return False, msg
+    if len(text) > 500:
+        msg = "Matn juda uzun (max 500 belgi). Iltimos, qisqartiring." if text_lang == "uz" \
+            else "Текст слишком длинный (макс. 500 симв). Пожалуйста, сократите."
+        return False, msg
+
+    kind_label = "mahsulot nomi/sarlavhasi" if kind == "title" else "mahsulot xususiyatlari"
+    check_prompt = f"""Foydalanuvchi Telegram bot orqali {kind_label} sifatida quyidagi matnni yozdi:
+
+"{text}"
+
+Bu matn haqiqatan ham mahsulot {('nomi' if kind == 'title' else 'xususiyati/tavsifi')} sifatida mantiqiy va foydalanish mumkinmi?
+Quyidagi holatlarda INVALID deb belgilang: bema'ni/random belgilar, haqoratli so'zlar, reklama/spam, mahsulotga umuman aloqasi yo'q matn (masalan siyosat, boshqa mavzu), yoki bo'sh mazmun.
+Agar matn oddiy, qisqa bo'lsa ham mantiqiy mahsulot nomi/xususiyati bo'lsa — VALID deb belgilang (qisqa bo'lishi muammo emas).
+
+Faqat shu formatda javob bering, boshqa hech narsa yozmang:
+VALID
+yoki
+INVALID: <qisqa sabab, foydalanuvchiga tushunarli tilda>"""
+
+    try:
+        r = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": check_prompt}],
+            max_tokens=100, temperature=0,
+        )
+        result = r.choices[0].message.content.strip()
+        if result.upper().startswith("VALID"):
+            return True, ""
+        reason = result.split(":", 1)[1].strip() if ":" in result else result
+        return False, reason
+    except Exception as e:
+        logger.warning(f"validate_user_text xatolik: {e} — matn qabul qilinadi (fail-open)")
+        return True, ""  # AI xato bersa, foydalanuvchini bloklamaymiz
+
+
+# ══════════════════════════════════════════════════════════════════
+# FOYDALANUVCHI MATNINI OLDINDAN TARJIMA QILISH (v2)
+# ══════════════════════════════════════════════════════════════════
+# Sabab: agar tarjimani rasm-prompt yozadigan modelga topshirsak, u ba'zida
+# to'liq tarjima qilmasdan, original tildagi so'zlarni boshqa alifboga
+# fonetik o'girib qo'yadi (masalan o'zbekcha lotin -> kirillcha, tarjima
+# qilinmagan holda). Shuning uchun bu yerda ALOHIDA, aniq tarjima so'rovi
+# bilan matnni oldindan tozalab olamiz.
+
+def translate_user_text(text: str, target_lang: str) -> str:
+    """
+    Foydalanuvchi yozgan matnni target_lang ('uz' yoki 'ru') tiliga tarjima qiladi.
+    Agar matn allaqachon o'sha tilda bo'lsa, deyarli o'zgarishsiz qaytadi.
+    """
+    text = (text or "").strip()
+    if not text:
+        return text
+    target_name = "Uzbek (Latin script)" if target_lang == "uz" else "Russian"
+    prompt = (
+        f'Translate the following product-related text into {target_name}. '
+        f'If it is already in {target_name}, just clean it up slightly (fix typos) and return as-is. '
+        f'Return ONLY the translated text, nothing else — no quotes, no explanation, no original text:\n\n{text}'
+    )
+    try:
+        r = _client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=300, temperature=0.2,
+        )
+        result = r.choices[0].message.content.strip().strip('"')
+        return result if result else text
+    except Exception as e:
+        logger.warning(f"translate_user_text xatolik: {e} — original matn ishlatiladi")
+        return text
